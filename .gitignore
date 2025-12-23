@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+
+# Fabric run directories
+run/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Config outputs
+config/
