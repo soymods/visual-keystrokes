@@ -223,9 +223,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         Group primary = primarySelected();
         if (primary != null && primary.isVisible()) {
             Bounds selectionBounds = selectedBounds();
-            if (selectionBounds != null && hitTestTrashIcon(selectionBounds, overlayX, overlayY)) {
-                removeSelected();
-                return true;
+            if (selectionBounds != null) {
+                if (hitTestTrashIcon(selectionBounds, overlayX, overlayY)) {
+                    removeSelected();
+                    return true;
+                }
             }
             ResizeHandle handle = selectionBounds == null ? ResizeHandle.NONE : hitTestHandle(selectionBounds, overlayX, overlayY);
             if (handle != ResizeHandle.NONE) {
@@ -515,10 +517,10 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             drawTrashIcon(context, combined);
         }
 
-        if (dragMode == DragMode.MOVE && config.guidesEnabled) {
+        if ((dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.guidesEnabled) {
             drawGuides(context);
         }
-        if (dragMode == DragMode.MOVE && config.distanceLabelsEnabled) {
+        if ((dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.distanceLabelsEnabled) {
             drawDistanceLabels(context);
         }
 
@@ -724,6 +726,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             230);
     }
 
+
     private void drawCenteredText(DrawContext context, String text, int centerX, int y) {
         int textWidth = textRenderer.getWidth(text);
         context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, 0xFFFFFFFF);
@@ -760,14 +763,26 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private boolean invokeSearchFieldOnClickLegacy(double mouseX, double mouseY) {
-        if (searchField == null) {
+        return invokeTextFieldOnClickLegacy(searchField, mouseX, mouseY);
+    }
+
+    private boolean invokeSearchFieldKeyPressedLegacy(int keyCode, int scanCode, int modifiers) {
+        return invokeTextFieldKeyPressedLegacy(searchField, keyCode, scanCode, modifiers);
+    }
+
+    private boolean invokeSearchFieldCharTypedLegacy(char chr, int modifiers) {
+        return invokeTextFieldCharTypedLegacy(searchField, chr, modifiers);
+    }
+
+    private boolean invokeTextFieldOnClickLegacy(TextFieldWidget field, double mouseX, double mouseY) {
+        if (field == null) {
             return false;
         }
         try {
             if (legacyTextFieldOnClick == null) {
                 legacyTextFieldOnClick = TextFieldWidget.class.getMethod("onClick", double.class, double.class);
             }
-            legacyTextFieldOnClick.invoke(searchField, mouseX, mouseY);
+            legacyTextFieldOnClick.invoke(field, mouseX, mouseY);
             return true;
         } catch (NoSuchMethodException e) {
             return false;
@@ -776,15 +791,15 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
     }
 
-    private boolean invokeSearchFieldKeyPressedLegacy(int keyCode, int scanCode, int modifiers) {
-        if (searchField == null) {
+    private boolean invokeTextFieldKeyPressedLegacy(TextFieldWidget field, int keyCode, int scanCode, int modifiers) {
+        if (field == null) {
             return false;
         }
         try {
             if (legacyTextFieldKeyPressed == null) {
                 legacyTextFieldKeyPressed = TextFieldWidget.class.getMethod("keyPressed", int.class, int.class, int.class);
             }
-            return (boolean) legacyTextFieldKeyPressed.invoke(searchField, keyCode, scanCode, modifiers);
+            return (boolean) legacyTextFieldKeyPressed.invoke(field, keyCode, scanCode, modifiers);
         } catch (NoSuchMethodException e) {
             return false;
         } catch (ReflectiveOperationException e) {
@@ -792,21 +807,22 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
     }
 
-    private boolean invokeSearchFieldCharTypedLegacy(char chr, int modifiers) {
-        if (searchField == null) {
+    private boolean invokeTextFieldCharTypedLegacy(TextFieldWidget field, char chr, int modifiers) {
+        if (field == null) {
             return false;
         }
         try {
             if (legacyTextFieldCharTyped == null) {
                 legacyTextFieldCharTyped = TextFieldWidget.class.getMethod("charTyped", char.class, int.class);
             }
-            return (boolean) legacyTextFieldCharTyped.invoke(searchField, chr, modifiers);
+            return (boolean) legacyTextFieldCharTyped.invoke(field, chr, modifiers);
         } catch (NoSuchMethodException e) {
             return false;
         } catch (ReflectiveOperationException e) {
             throw new RuntimeException("Failed to handle legacy text field char input.", e);
         }
     }
+
 
     private boolean handleSidebarClick(double mouseX, double mouseY) {
         if (sidebarProgress <= 0.01f) {
@@ -1107,6 +1123,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         context.drawVerticalLine(slatRight, slatTop, slatBottom, outline);
     }
 
+
     private void drawLasso(DrawContext context) {
         int left = (int) Math.round(Math.min(lassoStartX, lassoEndX));
         int right = (int) Math.round(Math.max(lassoStartX, lassoEndX));
@@ -1154,12 +1171,13 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         double aspect = dragStartBounds.width / (double) dragStartBounds.height;
         int width;
         int height;
+        boolean horizontalDominant = Math.abs(dx) >= Math.abs(dy);
 
         switch (resizeHandle) {
             case TOP_LEFT -> {
                 width = Math.max(MIN_GROUP_SIZE, right - (left + dx));
                 height = Math.max(MIN_GROUP_SIZE, bottom - (top + dy));
-                if (Math.abs(dx) >= Math.abs(dy)) {
+                if (horizontalDominant) {
                     height = Math.max(MIN_GROUP_SIZE, (int) Math.round(width / aspect));
                 } else {
                     width = Math.max(MIN_GROUP_SIZE, (int) Math.round(height * aspect));
@@ -1170,7 +1188,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             case TOP_RIGHT -> {
                 width = Math.max(MIN_GROUP_SIZE, (right + dx) - left);
                 height = Math.max(MIN_GROUP_SIZE, bottom - (top + dy));
-                if (Math.abs(dx) >= Math.abs(dy)) {
+                if (horizontalDominant) {
                     height = Math.max(MIN_GROUP_SIZE, (int) Math.round(width / aspect));
                 } else {
                     width = Math.max(MIN_GROUP_SIZE, (int) Math.round(height * aspect));
@@ -1181,7 +1199,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             case BOTTOM_LEFT -> {
                 width = Math.max(MIN_GROUP_SIZE, right - (left + dx));
                 height = Math.max(MIN_GROUP_SIZE, (bottom + dy) - top);
-                if (Math.abs(dx) >= Math.abs(dy)) {
+                if (horizontalDominant) {
                     height = Math.max(MIN_GROUP_SIZE, (int) Math.round(width / aspect));
                 } else {
                     width = Math.max(MIN_GROUP_SIZE, (int) Math.round(height * aspect));
@@ -1192,7 +1210,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             case BOTTOM_RIGHT -> {
                 width = Math.max(MIN_GROUP_SIZE, (right + dx) - left);
                 height = Math.max(MIN_GROUP_SIZE, (bottom + dy) - top);
-                if (Math.abs(dx) >= Math.abs(dy)) {
+                if (horizontalDominant) {
                     height = Math.max(MIN_GROUP_SIZE, (int) Math.round(width / aspect));
                 } else {
                     width = Math.max(MIN_GROUP_SIZE, (int) Math.round(height * aspect));
@@ -1206,7 +1224,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
 
         Bounds target = new Bounds(newLeft, newTop, newRight - newLeft, newBottom - newTop);
-        primary.resizeTo(dragStartBounds, target, resizeSnapshots);
+        Bounds snapped = applyResizeSnapping(target, resizeHandle, horizontalDominant, aspect);
+        primary.resizeTo(dragStartBounds, snapped, resizeSnapshots);
     }
 
     private ResizeHandle hitTestHandle(Bounds bounds, double overlayX, double overlayY) {
@@ -1236,6 +1255,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int trashY = bounds.y + bounds.height + 4;
         return isPointInside(overlayX, overlayY, trashX, trashY, TRASH_SIZE, TRASH_SIZE);
     }
+
 
     private boolean isInSidebarArea(double mouseX, double mouseY) {
         if (sidebarProgress <= 0.01f) {
@@ -1575,6 +1595,82 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return target;
         }
 
+        SnapPair snap = computeSnapResults(target, true, true, true, true, true, true);
+        Bounds snapped = new Bounds(
+            (int) Math.round(target.x + snap.snapDx),
+            (int) Math.round(target.y + snap.snapDy),
+            target.width,
+            target.height
+        );
+        updateSnapOverlays(snap.xResult, snap.yResult, snapped);
+        return snapped;
+    }
+
+    private Bounds applyResizeSnapping(Bounds target, ResizeHandle handle, boolean horizontalDominant, double aspect) {
+        guideLines.clear();
+        distanceLabels.clear();
+
+        if (!config.snappingEnabled && !config.guidesEnabled && !config.distanceLabelsEnabled) {
+            return target;
+        }
+
+        boolean moveLeft = handle == ResizeHandle.TOP_LEFT || handle == ResizeHandle.BOTTOM_LEFT;
+        boolean moveRight = handle == ResizeHandle.TOP_RIGHT || handle == ResizeHandle.BOTTOM_RIGHT;
+        boolean moveTop = handle == ResizeHandle.TOP_LEFT || handle == ResizeHandle.TOP_RIGHT;
+        boolean moveBottom = handle == ResizeHandle.BOTTOM_LEFT || handle == ResizeHandle.BOTTOM_RIGHT;
+
+        SnapPair snap = computeSnapResults(target, moveLeft, moveRight, false, moveTop, moveBottom, false);
+
+        int left = target.x;
+        int top = target.y;
+        int right = target.x + target.width;
+        int bottom = target.y + target.height;
+
+        // Snap along the dominant axis to preserve the resize aspect ratio.
+        if (horizontalDominant) {
+            if (moveLeft && snap.snapDx != 0) {
+                left = (int) Math.round(target.x + snap.snapDx);
+            }
+            if (moveRight && snap.snapDx != 0) {
+                right = (int) Math.round(target.x + target.width + snap.snapDx);
+            }
+            int width = Math.max(MIN_GROUP_SIZE, right - left);
+            int height = Math.max(MIN_GROUP_SIZE, (int) Math.round(width / aspect));
+            if (moveTop) {
+                top = bottom - height;
+            } else if (moveBottom) {
+                bottom = top + height;
+            }
+        } else {
+            if (moveTop && snap.snapDy != 0) {
+                top = (int) Math.round(target.y + snap.snapDy);
+            }
+            if (moveBottom && snap.snapDy != 0) {
+                bottom = (int) Math.round(target.y + target.height + snap.snapDy);
+            }
+            int height = Math.max(MIN_GROUP_SIZE, bottom - top);
+            int width = Math.max(MIN_GROUP_SIZE, (int) Math.round(height * aspect));
+            if (moveLeft) {
+                left = right - width;
+            } else if (moveRight) {
+                right = left + width;
+            }
+        }
+
+        Bounds snapped = new Bounds(left, top, right - left, bottom - top);
+        updateSnapOverlays(snap.xResult, snap.yResult, snapped);
+        return snapped;
+    }
+
+    private SnapPair computeSnapResults(
+        Bounds target,
+        boolean includeLeft,
+        boolean includeRight,
+        boolean includeCenterX,
+        boolean includeTop,
+        boolean includeBottom,
+        boolean includeCenterY
+    ) {
         int threshold = Math.max(1, config.snapThreshold);
         double scale = config.scale;
 
@@ -1603,15 +1699,27 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             double[] yGuides = new double[] {0.0, height / 2.0, height};
 
             for (double guide : xGuides) {
-                considerSnapScreen(centerXScreen, guide, threshold, xResult, false);
-                considerSnapScreen(leftScreen, guide, threshold, xResult, false);
-                considerSnapScreen(rightScreen, guide, threshold, xResult, false);
+                if (includeCenterX) {
+                    considerSnapScreen(centerXScreen, guide, threshold, xResult, false);
+                }
+                if (includeLeft) {
+                    considerSnapScreen(leftScreen, guide, threshold, xResult, false);
+                }
+                if (includeRight) {
+                    considerSnapScreen(rightScreen, guide, threshold, xResult, false);
+                }
             }
 
             for (double guide : yGuides) {
-                considerSnapScreen(centerYScreen, guide, threshold, yResult, true);
-                considerSnapScreen(topScreen, guide, threshold, yResult, true);
-                considerSnapScreen(bottomScreen, guide, threshold, yResult, true);
+                if (includeCenterY) {
+                    considerSnapScreen(centerYScreen, guide, threshold, yResult, true);
+                }
+                if (includeTop) {
+                    considerSnapScreen(topScreen, guide, threshold, yResult, true);
+                }
+                if (includeBottom) {
+                    considerSnapScreen(bottomScreen, guide, threshold, yResult, true);
+                }
             }
 
             for (Group group : groups) {
@@ -1633,17 +1741,29 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
                 double gCenterXScreen = config.offsetX + gCenterX * scale;
                 double gCenterYScreen = config.offsetY + gCenterY * scale;
 
-                considerSnapScreen(leftScreen, gLeftScreen, threshold, xResult, false);
-                considerSnapScreen(rightScreen, gRightScreen, threshold, xResult, false);
-                considerSnapScreen(centerXScreen, gCenterXScreen, threshold, xResult, false);
-                considerSnapScreen(leftScreen, gRightScreen, threshold, xResult, false);
-                considerSnapScreen(rightScreen, gLeftScreen, threshold, xResult, false);
+                if (includeLeft) {
+                    considerSnapScreen(leftScreen, gLeftScreen, threshold, xResult, false);
+                    considerSnapScreen(leftScreen, gRightScreen, threshold, xResult, false);
+                }
+                if (includeRight) {
+                    considerSnapScreen(rightScreen, gRightScreen, threshold, xResult, false);
+                    considerSnapScreen(rightScreen, gLeftScreen, threshold, xResult, false);
+                }
+                if (includeCenterX) {
+                    considerSnapScreen(centerXScreen, gCenterXScreen, threshold, xResult, false);
+                }
 
-                considerSnapScreen(topScreen, gTopScreen, threshold, yResult, true);
-                considerSnapScreen(bottomScreen, gBottomScreen, threshold, yResult, true);
-                considerSnapScreen(centerYScreen, gCenterYScreen, threshold, yResult, true);
-                considerSnapScreen(topScreen, gBottomScreen, threshold, yResult, true);
-                considerSnapScreen(bottomScreen, gTopScreen, threshold, yResult, true);
+                if (includeTop) {
+                    considerSnapScreen(topScreen, gTopScreen, threshold, yResult, true);
+                    considerSnapScreen(topScreen, gBottomScreen, threshold, yResult, true);
+                }
+                if (includeBottom) {
+                    considerSnapScreen(bottomScreen, gBottomScreen, threshold, yResult, true);
+                    considerSnapScreen(bottomScreen, gTopScreen, threshold, yResult, true);
+                }
+                if (includeCenterY) {
+                    considerSnapScreen(centerYScreen, gCenterYScreen, threshold, yResult, true);
+                }
             }
         }
 
@@ -1656,15 +1776,19 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             }
         }
 
-        Bounds snapped = new Bounds((int) Math.round(target.x + snapDx), (int) Math.round(target.y + snapDy), target.width, target.height);
+        return new SnapPair(xResult, yResult, snapDx, snapDy);
+    }
 
+    private void updateSnapOverlays(SnapResult xResult, SnapResult yResult, Bounds snapped) {
         if (config.guidesEnabled) {
             guideLines.addAll(xResult.guides);
             guideLines.addAll(yResult.guides);
         }
 
         if (config.distanceLabelsEnabled) {
+            int threshold = Math.max(1, config.snapThreshold);
             int distanceThreshold = threshold * 2;
+            double scale = config.scale;
             int snappedLeft = snapped.x;
             int snappedTop = snapped.y;
             int snappedRight = snapped.x + snapped.width;
@@ -1688,8 +1812,6 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
                 distanceLabels.add(new DistanceLabel(snappedLeft + snapped.width / 2, snappedBottom - 2, distBottom));
             }
         }
-
-        return snapped;
     }
 
     private void considerSnapScreen(double targetEdge, double guide, int threshold, SnapResult result, boolean horizontal) {
@@ -2084,6 +2206,20 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private static final class SnapResult {
         private final List<GuideLine> guides = new ArrayList<>();
         private Double bestDeltaScreen;
+    }
+
+    private static final class SnapPair {
+        private final SnapResult xResult;
+        private final SnapResult yResult;
+        private final double snapDx;
+        private final double snapDy;
+
+        private SnapPair(SnapResult xResult, SnapResult yResult, double snapDx, double snapDy) {
+            this.xResult = xResult;
+            this.yResult = yResult;
+            this.snapDx = snapDx;
+            this.snapDy = snapDy;
+        }
     }
 
     private static final class KeySnapshot {
