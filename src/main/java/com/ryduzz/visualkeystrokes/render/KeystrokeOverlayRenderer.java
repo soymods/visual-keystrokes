@@ -4,6 +4,8 @@ import com.ryduzz.visualkeystrokes.config.OverlayConfig;
 import com.ryduzz.visualkeystrokes.input.InputTracker;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
+import com.ryduzz.visualkeystrokes.util.MatrixStackCompat;
+import com.ryduzz.visualkeystrokes.util.RenderSnap;
 import net.minecraft.client.gui.DrawContext;
 
 import java.util.function.Supplier;
@@ -22,10 +24,13 @@ public final class KeystrokeOverlayRenderer {
     public void render(DrawContext context) {
         OverlayConfig config = configSupplier.get();
         TextRenderer textRenderer = client.textRenderer;
+        float renderScale = RenderSnap.snapScale(config.scale);
+        double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
+        double offsetY = RenderSnap.snapOffset(config.offsetY, renderScale);
 
-        context.getMatrices().pushMatrix();
-        context.getMatrices().translate(config.offsetX, config.offsetY);
-        context.getMatrices().scale(config.scale, config.scale);
+        MatrixStackCompat.push(context.getMatrices());
+        MatrixStackCompat.translate(context.getMatrices(), offsetX, offsetY);
+        MatrixStackCompat.scale(context.getMatrices(), renderScale, renderScale);
 
         for (OverlayConfig.KeyDefinition key : config.keys) {
             if (!key.isVisible()) {
@@ -61,7 +66,7 @@ public final class KeystrokeOverlayRenderer {
             }
         }
 
-        context.getMatrices().popMatrix();
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private static void drawBorder(DrawContext context, int x, int y, int width, int height, int color) {

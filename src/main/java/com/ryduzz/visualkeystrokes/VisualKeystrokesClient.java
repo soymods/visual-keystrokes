@@ -3,7 +3,9 @@ package com.ryduzz.visualkeystrokes;
 import com.ryduzz.visualkeystrokes.config.OverlayConfig;
 import com.ryduzz.visualkeystrokes.input.InputTracker;
 import com.ryduzz.visualkeystrokes.render.KeystrokeOverlayRenderer;
-import com.ryduzz.visualkeystrokes.screen.VisualKeystrokesEditorScreen;
+import com.ryduzz.visualkeystrokes.screen.VisualKeystrokesEditor;
+import com.ryduzz.visualkeystrokes.screen.VisualKeystrokesEditorScreens;
+import com.ryduzz.visualkeystrokes.util.KeyBindingCompat;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -16,14 +18,10 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 public final class VisualKeystrokesClient implements ClientModInitializer {
     private static OverlayConfig config;
-    private static final KeyBinding.Category CATEGORY =
-        KeyBinding.Category.create(Identifier.of("visualkeystrokes", "general"));
-
     @Override
     public void onInitializeClient() {
         config = OverlayConfig.loadOrCreate();
@@ -33,17 +31,18 @@ public final class VisualKeystrokesClient implements ClientModInitializer {
         KeystrokeOverlayRenderer renderer = new KeystrokeOverlayRenderer(tracker, () -> config);
 
         HudRenderCallback.EVENT.register((context, tickDelta) -> {
-            if (config.enabled && !(client.currentScreen instanceof VisualKeystrokesEditorScreen)) {
+            if (config.enabled && !(client.currentScreen instanceof VisualKeystrokesEditor)) {
                 renderer.render(context);
             }
         });
 
-        KeyBinding toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-            "key.visualkeystrokes.toggle",
-            InputUtil.Type.KEYSYM,
-            GLFW.GLFW_KEY_F8,
-            CATEGORY
-        ));
+        KeyBinding toggleKey = KeyBindingHelper.registerKeyBinding(
+            KeyBindingCompat.createKeyBinding(
+                "key.visualkeystrokes.toggle",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_F8
+            )
+        );
 
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
             tracker.update();
@@ -72,7 +71,7 @@ public final class VisualKeystrokesClient implements ClientModInitializer {
             }
 
             Screens.getButtons(screen).add(ButtonWidget.builder(Text.literal("Edit Keystrokes"), button ->
-                screenClient.setScreen(new VisualKeystrokesEditorScreen(config))
+                screenClient.setScreen(VisualKeystrokesEditorScreens.createEditorScreen(config))
             ).dimensions(x, y, buttonWidth, buttonHeight).build());
         });
     }

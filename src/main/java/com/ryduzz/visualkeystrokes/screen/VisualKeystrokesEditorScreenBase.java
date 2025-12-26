@@ -2,6 +2,8 @@ package com.ryduzz.visualkeystrokes.screen;
 
 import com.ryduzz.visualkeystrokes.config.OverlayConfig;
 import net.minecraft.client.MinecraftClient;
+import com.ryduzz.visualkeystrokes.util.MatrixStackCompat;
+import com.ryduzz.visualkeystrokes.util.RenderSnap;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
@@ -37,6 +39,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private static final int SETTINGS_PANEL_WIDTH = 220;
     private static final int SETTINGS_PANEL_HEIGHT = 150;
     private static final int GUIDE_COLOR = 0xFF00B7FF;
+    private static final Method REFRESH_WIDGET_POSITIONS =
+        findMethod(Screen.class, "refreshWidgetPositions");
     private static Method legacyTextFieldOnClick;
     private static Method legacyTextFieldKeyPressed;
     private static Method legacyTextFieldCharTyped;
@@ -108,9 +112,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         addDrawableChild(searchField);
     }
 
-    @Override
     protected void refreshWidgetPositions() {
-        super.refreshWidgetPositions();
+        invokeRefreshWidgetPositions();
     }
 
     @Override
@@ -150,6 +153,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
 
         super.render(context, mouseX, mouseY, delta);
+    }
+
+    @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
+        // Avoid the default blur pass in Screen#renderBackground.
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -412,9 +420,12 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private void drawOverlayBase(DrawContext context, boolean includeSelected) {
-        context.getMatrices().pushMatrix();
-        context.getMatrices().translate(config.offsetX, config.offsetY);
-        context.getMatrices().scale(config.scale, config.scale);
+        float renderScale = RenderSnap.snapScale(config.scale);
+        double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
+        double offsetY = RenderSnap.snapOffset(config.offsetY, renderScale);
+        MatrixStackCompat.push(context.getMatrices());
+        MatrixStackCompat.translate(context.getMatrices(), offsetX, offsetY);
+        MatrixStackCompat.scale(context.getMatrices(), renderScale, renderScale);
 
         for (OverlayConfig.KeyDefinition key : config.keys) {
             if (!key.isVisible()) {
@@ -457,7 +468,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             drawLasso(context);
         }
 
-        context.getMatrices().popMatrix();
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private void drawSelectedOverlay(DrawContext context) {
@@ -465,9 +476,12 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return;
         }
 
-        context.getMatrices().pushMatrix();
-        context.getMatrices().translate(config.offsetX, config.offsetY);
-        context.getMatrices().scale(config.scale, config.scale);
+        float renderScale = RenderSnap.snapScale(config.scale);
+        double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
+        double offsetY = RenderSnap.snapOffset(config.offsetY, renderScale);
+        MatrixStackCompat.push(context.getMatrices());
+        MatrixStackCompat.translate(context.getMatrices(), offsetX, offsetY);
+        MatrixStackCompat.scale(context.getMatrices(), renderScale, renderScale);
 
         for (Group group : selectedGroups) {
             for (OverlayConfig.KeyDefinition key : group.keys) {
@@ -508,7 +522,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             drawDistanceLabels(context);
         }
 
-        context.getMatrices().popMatrix();
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private void drawSidebar(DrawContext context, int mouseX, int mouseY) {
@@ -853,6 +867,27 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             y += entryHeight + 6;
         }
         return false;
+    }
+
+    private void invokeRefreshWidgetPositions() {
+        if (REFRESH_WIDGET_POSITIONS == null) {
+            return;
+        }
+        try {
+            REFRESH_WIDGET_POSITIONS.invoke(this);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Failed to refresh widget positions.", e);
+        }
+    }
+
+    private static Method findMethod(Class<?> owner, String name, Class<?>... params) {
+        try {
+            Method method = owner.getDeclaredMethod(name, params);
+            method.setAccessible(true);
+            return method;
+        } catch (NoSuchMethodException e) {
+            return null;
+        }
     }
 
     private void drawResetButton(DrawContext context, int sidebarX, int sidebarWidth, int mouseX, int mouseY) {
@@ -1757,11 +1792,15 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private double toOverlayX(double screenX) {
-        return (screenX - config.offsetX) / config.scale;
+        float renderScale = RenderSnap.snapScale(config.scale);
+        double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
+        return (screenX - offsetX) / renderScale;
     }
 
     private double toOverlayY(double screenY) {
-        return (screenY - config.offsetY) / config.scale;
+        float renderScale = RenderSnap.snapScale(config.scale);
+        double offsetY = RenderSnap.snapOffset(config.offsetY, renderScale);
+        return (screenY - offsetY) / renderScale;
     }
 
     private void toggleSidebar() {

@@ -1,10 +1,10 @@
 package com.ryduzz.visualkeystrokes.input;
 
 import com.ryduzz.visualkeystrokes.config.OverlayConfig;
-import com.ryduzz.visualkeystrokes.screen.VisualKeystrokesEditorScreen;
+import com.ryduzz.visualkeystrokes.screen.VisualKeystrokesEditor;
+import com.ryduzz.visualkeystrokes.util.InputUtilCompat;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.GameMenuScreen;
-import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayDeque;
@@ -24,7 +24,7 @@ public final class InputTracker {
     }
 
     public boolean isPressed(OverlayConfig.InputType type, int code) {
-        if (client.currentScreen instanceof GameMenuScreen || client.currentScreen instanceof VisualKeystrokesEditorScreen) {
+        if (client.currentScreen instanceof GameMenuScreen || client.currentScreen instanceof VisualKeystrokesEditor) {
             return false;
         }
         if (type == OverlayConfig.InputType.STAT) {
@@ -34,11 +34,11 @@ public final class InputTracker {
             long handle = client.getWindow().getHandle();
             return GLFW.glfwGetMouseButton(handle, code) == GLFW.GLFW_PRESS;
         }
-        return InputUtil.isKeyPressed(client.getWindow(), code);
+        return InputUtilCompat.isKeyPressed(client, code);
     }
 
     public void update() {
-        if (client.currentScreen instanceof GameMenuScreen || client.currentScreen instanceof VisualKeystrokesEditorScreen) {
+        if (client.currentScreen instanceof GameMenuScreen || client.currentScreen instanceof VisualKeystrokesEditor) {
             leftPressed = false;
             rightPressed = false;
             middlePressed = false;
