@@ -620,6 +620,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         if ((dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.distanceLabelsEnabled) {
             drawDistanceLabels(context);
         }
+        if (dragMode == DragMode.RESIZE) {
+            if (combined != null) {
+                drawResizeSizeLabels(context, combined);
+            }
+        }
 
         MatrixStackCompat.pop(context.getMatrices());
     }
@@ -959,6 +964,10 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
                     group = groupById.get(template.id);
                 }
                 if (group != null) {
+                    boolean wasVisible = group.isVisible();
+                    if (!wasVisible) {
+                        resetGroupLayout(group, template);
+                    }
                     group.setVisible(true);
                     selectedGroups.clear();
                     selectedGroups.add(group);
@@ -2600,6 +2609,57 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             context.fill(x - 2, y - 2, x + textWidth + 2, y + textRenderer.fontHeight + 2, 0xCC111111);
             context.drawTextWithShadow(textRenderer, text, x, y, 0xFFFFFFFF);
         }
+    }
+
+    private void drawResizeSizeLabels(DrawContext context, Bounds bounds) {
+        String widthText = "W: " + bounds.width;
+        int widthTextWidth = textRenderer.getWidth(widthText);
+        int widthX = bounds.x + (bounds.width - widthTextWidth) / 2;
+        int widthY = bounds.y + bounds.height + 4;
+        context.fill(widthX - 2, widthY - 2, widthX + widthTextWidth + 2, widthY + textRenderer.fontHeight + 2, 0xCC111111);
+        context.drawTextWithShadow(textRenderer, widthText, widthX, widthY, 0xFFFFFFFF);
+
+        String heightText = "H: " + bounds.height;
+        int heightTextWidth = textRenderer.getWidth(heightText);
+        int heightX = bounds.x - heightTextWidth - 8;
+        int heightY = bounds.y + (bounds.height - textRenderer.fontHeight) / 2;
+        context.fill(heightX - 2, heightY - 2, heightX + heightTextWidth + 2, heightY + textRenderer.fontHeight + 2, 0xCC111111);
+        context.drawTextWithShadow(textRenderer, heightText, heightX, heightY, 0xFFFFFFFF);
+    }
+
+    private void resetGroupLayout(Group group, Template template) {
+        List<OverlayConfig.KeyDefinition> templateKeys = template.keys;
+        List<OverlayConfig.KeyDefinition> groupKeys = group.keys;
+        if (templateKeys.size() == groupKeys.size()) {
+            for (int i = 0; i < groupKeys.size(); i++) {
+                applyTemplateLayout(groupKeys.get(i), templateKeys.get(i));
+            }
+            return;
+        }
+        Map<String, OverlayConfig.KeyDefinition> lookup = new HashMap<>();
+        for (OverlayConfig.KeyDefinition key : templateKeys) {
+            lookup.put(templateSignature(key), key);
+        }
+        for (OverlayConfig.KeyDefinition key : groupKeys) {
+            OverlayConfig.KeyDefinition templateKey = lookup.get(templateSignature(key));
+            if (templateKey != null) {
+                applyTemplateLayout(key, templateKey);
+            }
+        }
+    }
+
+    private void applyTemplateLayout(OverlayConfig.KeyDefinition target, OverlayConfig.KeyDefinition template) {
+        target.x = template.x;
+        target.y = template.y;
+        target.width = template.width;
+        target.height = template.height;
+    }
+
+    private String templateSignature(OverlayConfig.KeyDefinition key) {
+        if (key.type == OverlayConfig.InputType.STAT) {
+            return key.type + ":" + key.statId + ":" + key.label;
+        }
+        return key.type + ":" + key.code + ":" + key.label;
     }
 
     private Group hitTestGroup(double overlayX, double overlayY) {

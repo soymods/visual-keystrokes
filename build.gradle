@@ -50,7 +50,7 @@ project.ext.fabric_version = resolvedFabricApi
 def minecraftDependency = project.minecraft_version.toString()
 
 def resolvedModVersion = project.mod_version.toString()
-def includeMcSuffix = useDynamicResolution || project.gradle.startParameter.taskNames.contains('buildAllTargets')
+def includeMcSuffix = true
 project.version = includeMcSuffix
         ? "${resolvedModVersion}+mc${requestedMcVersion}"
         : resolvedModVersion
