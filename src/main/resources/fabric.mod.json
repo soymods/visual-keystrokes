@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "visualkeystrokes",
+  "version": "${version}",
+  "name": "Visual Keystrokes",
+  "description": "Highly customizable keystroke and mouse overlay.",
+  "icon": "assets/visualkeystrokes/icon.png",
+  "authors": ["ryduzz"],
+  "contact": {
+    "sources": "https://github.com/yourname/visual-keystrokes"
+  },
+  "license": "All Rights Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.ryduzz.visualkeystrokes.VisualKeystrokesClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.7",
+    "minecraft": "${minecraft_dependency}",
+    "fabric-api": "*"
+  }
+}

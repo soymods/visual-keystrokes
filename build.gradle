@@ -1,0 +1,156 @@
+plugins {
+    id 'fabric-loom' version '1.13.6'
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+def supportedMcVersions = (project.findProperty('supported_mc_versions') ?: '1.21,1.21.1,1.21.2,1.21.3,1.21.4,1.21.5,1.21.6,1.21.7,1.21.8,1.21.9,1.21.10,1.21.11')
+        .split(',')
+        .collect { it.trim() }
+        .findAll { it }
+def requestedMcVersion = (project.findProperty('mc_version') ?: project.minecraft_version).toString()
+if (!supportedMcVersions.contains(requestedMcVersion)) {
+    throw new GradleException("Unsupported mc_version '${requestedMcVersion}'. Supported versions: ${supportedMcVersions.join(', ')}")
+}
+
+def resolveFromMavenMetadata(String metadataUrl, Closure<Boolean> matcher, String label) {
+    def metadataText = new URL(metadataUrl).getText('UTF-8')
+    def metadata = new XmlSlurper().parseText(metadataText)
+    def versions = metadata.versioning.versions.version.collect { it.text() }
+    def matches = versions.findAll(matcher)
+    if (matches.isEmpty()) {
+        throw new GradleException("No ${label} version found for Minecraft ${requestedMcVersion} at ${metadataUrl}")
+    }
+    return matches.last()
+}
+
+def useDynamicResolution = project.hasProperty('mc_version')
+def hasExplicitYarnMappings = project.gradle.startParameter.projectProperties.containsKey('yarn_mappings')
+def hasExplicitFabricVersion = project.gradle.startParameter.projectProperties.containsKey('fabric_version')
+
+def resolvedYarnMappings = (useDynamicResolution && !hasExplicitYarnMappings)
+        ? resolveFromMavenMetadata(
+                'https://maven.fabricmc.net/net/fabricmc/yarn/maven-metadata.xml',
+                { it.startsWith("${requestedMcVersion}+build.") },
+                'Yarn mappings')
+        : (project.findProperty('yarn_mappings') ?: project.yarn_mappings)
+def resolvedFabricApi = (useDynamicResolution && !hasExplicitFabricVersion)
+        ? resolveFromMavenMetadata(
+                'https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml',
+                { it.endsWith("+${requestedMcVersion}") },
+                'Fabric API')
+        : (project.findProperty('fabric_version') ?: project.fabric_version)
+
+project.ext.minecraft_version = requestedMcVersion
+project.ext.yarn_mappings = resolvedYarnMappings
+project.ext.fabric_version = resolvedFabricApi
+
+def minecraftDependency = project.minecraft_version.toString()
+
+def resolvedModVersion = project.mod_version.toString()
+def includeMcSuffix = useDynamicResolution || project.gradle.startParameter.taskNames.contains('buildAllTargets')
+project.version = includeMcSuffix
+        ? "${resolvedModVersion}+mc${requestedMcVersion}"
+        : resolvedModVersion
+
+def parseVersion(String version) {
+    version.tokenize('.').collect { it as int }
+}
+
+def isAtLeast(String version, String minimum) {
+    def left = parseVersion(version)
+    def right = parseVersion(minimum)
+    def max = Math.max(left.size(), right.size())
+    for (int i = 0; i < max; i++) {
+        int l = i < left.size() ? left[i] : 0
+        int r = i < right.size() ? right[i] : 0
+        if (l != r) {
+            return l > r
+        }
+    }
+    return true
+}
+
+def useModernInput = isAtLeast(requestedMcVersion, '1.21.10')
+def useJomlMatrices = isAtLeast(requestedMcVersion, '1.21.6')
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([
+                    'src/main/java',
+                    useModernInput ? 'src/modern/java' : 'src/legacy/java',
+                    useJomlMatrices ? 'src/matrix-joml/java' : 'src/matrix-stack/java'
+            ])
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://maven.fabricmc.net/' }
+    maven { url 'https://api.modrinth.com/maven' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    withSourcesJar()
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_dependency', project.minecraft_version
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version,
+                'minecraft_dependency': project.minecraft_version
+    }
+}
+
+jar {
+    from('LICENSE.txt') {
+        rename { "${it}_${project.archives_base_name}" }
+    }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+def gradleWrapper = System.getProperty('os.name').toLowerCase().contains('windows') ? 'gradlew.bat' : './gradlew'
+def buildTargetTasks = supportedMcVersions.collect { version ->
+    def taskName = "buildTarget${version.replace('.', '_')}"
+    tasks.register(taskName, Exec) {
+        group = 'build'
+        description = "Builds the mod for Minecraft ${version}"
+        workingDir = rootDir
+        commandLine gradleWrapper, 'build', "-Pmc_version=${version}"
+    }
+}
+
+tasks.register('buildAllTargets') {
+    group = 'build'
+    description = 'Builds the mod for all supported Minecraft versions.'
+    dependsOn(buildTargetTasks)
+    doLast {
+        delete(fileTree("${buildDir}/libs") {
+            include "${project.archives_base_name}-${resolvedModVersion}.jar"
+            include "${project.archives_base_name}-${resolvedModVersion}-sources.jar"
+        })
+    }
+}
