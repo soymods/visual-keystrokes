@@ -4,7 +4,7 @@
 [![Fabric](https://img.shields.io/badge/Fabric-0.18.3-CC6E3E?style=for-the-badge&logo=modrinth)](https://fabricmc.net)
 [![Java](https://img.shields.io/badge/Java-21+-FF6B6B?style=for-the-badge&logo=openjdk)](https://openjdk.java.net)
 [![License](https://img.shields.io/badge/License-See%20LICENSE-lightgrey?style=for-the-badge)](LICENSE.txt)
-![Build Status](https://img.shields.io/badge/Build-Local-brightgreen?style=for-the-badge)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)](https://github.com/soymods/pathmind)
 
 A highly customizable keystroke overlay for Minecraft 1.21-1.21.11. It renders a live, configurable layout of keyboard and mouse
 inputs so players can see exactly what is being pressed in real time.
