@@ -125,8 +125,9 @@ See [`LICENSE.txt`](LICENSE.txt).
 
 ## Support
 
-- **Documentation**: check this README and in-game tooltips
-- **Issues**: file an issue in the project tracker
+- **Documentation**: Check this README and in-game tooltips
+- **Issues**: [GitHub Issues](https://github.com/soymods/visual-keystrokes/issues)
+- **Discord**: [Join our Community](https://discord.gg/zWT2zxQm)
 
 ---
 
