@@ -1,3 +1,5 @@
+<div align="center">
+
 # Visual Keystrokes
 
 [![Minecraft](https://img.shields.io/badge/Minecraft-1.21--1.21.11-00AA00?style=for-the-badge&logo=minecraft)](https://minecraft.net)
@@ -8,6 +10,14 @@
 
 A highly customizable keystroke overlay for Minecraft 1.21-1.21.11. It renders a live, configurable layout of keyboard and mouse
 inputs so players can see exactly what is being pressed in real time.
+
+### ⬇️ **DOWNLOAD PATHMIND ON MODRINTH** ⬇️
+
+<a href="https://modrinth.com/mod/visual-keystrokes">
+  <img src="https://img.shields.io/badge/Modrinth-DOWNLOAD-00D5AA?style=for-the-badge&logo=modrinth&logoColor=white">
+</a>
+
+</div>
 
 ## Quick Start
 
