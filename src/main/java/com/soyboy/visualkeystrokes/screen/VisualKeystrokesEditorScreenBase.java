@@ -58,6 +58,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private static final int COLOR_PICKER_SLIDER_WIDTH = 8;
     private static final int COLOR_PICKER_FIELD_HEIGHT = 18;
     private static final int GUIDE_COLOR = 0xFFE4B93B;
+    private static final int POPUP_SURFACE_UNDERLAY = 0xFF0D1016;
     private static final Method REFRESH_WIDGET_POSITIONS =
         findMethod(Screen.class, "refreshWidgetPositions");
     private static Method legacyTextFieldOnClick;
@@ -209,8 +210,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         drawHeader(context, mouseX, mouseY);
 
         boolean dragging = dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE;
-        boolean popupVisible = isAnyPopupVisible();
-        drawOverlayBase(context, !dragging, mouseX, mouseY, !popupVisible);
+        drawOverlayBase(context, !dragging, mouseX, mouseY, true);
         drawSidebar(context, mouseX, mouseY);
         drawSidebarToggle(context, mouseX, mouseY);
         drawSettingsButton(context, mouseX, mouseY);
@@ -654,13 +654,6 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         MatrixStackCompat.pop(context.getMatrices());
     }
 
-    private boolean isAnyPopupVisible() {
-        return infoPopupAnimation.isVisible()
-            || settingsPopupAnimation.isVisible()
-            || editorPopupAnimation.isVisible()
-            || colorPickerPopupAnimation.isVisible();
-    }
-
     private void drawSidebar(DrawContext context, int mouseX, int mouseY) {
         if (sidebarProgress <= 0.01f) {
             resetX = 0;
@@ -858,6 +851,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         context.fill(0, 0, width, height, infoPopupAnimation.getAnimatedBackgroundColor(0x80101010));
         beginPopupScaleTransform(context, panelX, panelY, panelWidth, panelHeight, infoPopupAnimation);
 
+        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, POPUP_SURFACE_UNDERLAY);
         UiStyle.drawPanel(context, panelX, panelY, panelWidth, panelHeight);
         UiStyle.drawSectionHeader(context, textRenderer, "About", panelX + 10, panelY + 10, panelWidth - 20, UiStyle.ACCENT_BLUE);
 
@@ -1187,6 +1181,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         settingsPanelY = settingsButtonY - SETTINGS_PANEL_HEIGHT - 8;
         beginPopupScaleTransformBottomRight(context, settingsPanelX, settingsPanelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT, settingsPopupAnimation);
 
+        context.fill(settingsPanelX, settingsPanelY, settingsPanelX + SETTINGS_PANEL_WIDTH, settingsPanelY + SETTINGS_PANEL_HEIGHT, POPUP_SURFACE_UNDERLAY);
         UiStyle.drawPanel(context, settingsPanelX, settingsPanelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT);
         UiStyle.drawSectionHeader(
             context,
@@ -1308,6 +1303,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         context.fill(0, 0, width, height, editorPopupAnimation.getAnimatedBackgroundColor(0x80101010));
         beginPopupScaleTransform(context, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight, editorPopupAnimation);
 
+        context.fill(editorPanelX, editorPanelY, editorPanelX + editorPanelWidth, editorPanelY + editorPanelHeight, POPUP_SURFACE_UNDERLAY);
         UiStyle.drawPanel(context, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight);
         UiStyle.drawSectionHeader(
             context,
@@ -1538,6 +1534,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         colorPickerHeight = panelHeight;
         beginPopupScaleTransform(context, panelX, panelY, panelWidth, panelHeight, colorPickerPopupAnimation);
 
+        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, POPUP_SURFACE_UNDERLAY);
         UiStyle.drawPanel(context, panelX, panelY, panelWidth, panelHeight);
 
         int wheelCenterX = colorWheelCenterX();
