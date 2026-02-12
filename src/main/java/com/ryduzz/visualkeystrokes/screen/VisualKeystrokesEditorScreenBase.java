@@ -1,6 +1,10 @@
 package com.ryduzz.visualkeystrokes.screen;
 
 import com.ryduzz.visualkeystrokes.config.OverlayConfig;
+import com.ryduzz.visualkeystrokes.ui.animation.AnimatedValue;
+import com.ryduzz.visualkeystrokes.ui.animation.AnimationHelper;
+import com.ryduzz.visualkeystrokes.ui.animation.PopupAnimationHandler;
+import com.ryduzz.visualkeystrokes.ui.UiStyle;
 import net.minecraft.client.MinecraftClient;
 import com.ryduzz.visualkeystrokes.util.MatrixStackCompat;
 import com.ryduzz.visualkeystrokes.util.RenderSnap;
@@ -31,7 +35,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private static final int TRASH_SIZE = 8;
     private static final int EDIT_ICON_SIZE = 8;
     private static final int EDIT_ICON_GAP = 4;
-    private static final int SEARCH_HEIGHT = 18;
+    private static final int SEARCH_HEIGHT = 12;
     private static final int SEARCH_PADDING = 8;
     private static final int HEADER_Y = 12;
     private static final int HEADER_PADDING = 10;
@@ -42,11 +46,18 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private static final int SETTINGS_PANEL_HEIGHT = 150;
     private static final int EDITOR_PANEL_WIDTH = 280;
     private static final int EDITOR_PANEL_HEIGHT = 230;
+    private static final int SIDEBAR_TRANSITION_ANIM_MS = 180;
+    private static final int HOVER_ANIM_MS = 120;
+    private static final int TOGGLE_ANIM_MS = 140;
+    private static final float KEY_TEXT_BASE_SCALE = 0.84f;
+    private static final float KEY_TEXT_BASE_HEIGHT = 24.0f;
+    private static final float MOUSE_LABEL_SCALE_MULTIPLIER = 0.90f;
+    private static final float PRESSED_OPACITY_STEP = 0.05f;
     private static final int COLOR_PICKER_RADIUS = 32;
     private static final int COLOR_PICKER_PADDING = 10;
     private static final int COLOR_PICKER_SLIDER_WIDTH = 8;
     private static final int COLOR_PICKER_FIELD_HEIGHT = 18;
-    private static final int GUIDE_COLOR = 0xFF00B7FF;
+    private static final int GUIDE_COLOR = 0xFFE4B93B;
     private static final Method REFRESH_WIDGET_POSITIONS =
         findMethod(Screen.class, "refreshWidgetPositions");
     private static Method legacyTextFieldOnClick;
@@ -59,6 +70,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private final Map<String, Template> templates = new LinkedHashMap<>();
 
     private final List<Group> selectedGroups = new ArrayList<>();
+    private final Map<Object, AnimatedValue> hoverAnimations = new HashMap<>();
+    private final Map<Object, AnimatedValue> toggleAnimations = new HashMap<>();
     private DragMode dragMode = DragMode.NONE;
     private ResizeHandle resizeHandle = ResizeHandle.NONE;
     private double dragOffsetX;
@@ -88,6 +101,10 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private int resetWidth;
     private int resetHeight;
     private boolean infoOpen;
+    private int infoPanelX;
+    private int infoPanelY;
+    private int infoPanelWidth;
+    private int infoPanelHeight;
     private int headerX;
     private int headerY;
     private int headerWidth;
@@ -129,6 +146,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private int colorPickerWidth;
     private int colorPickerHeight;
     private TextFieldWidget colorHexField;
+    private final AnimatedValue sidebarOpenAnimation = new AnimatedValue(0f, AnimationHelper::easeOutCubic);
+    private final PopupAnimationHandler infoPopupAnimation = new PopupAnimationHandler();
+    private final PopupAnimationHandler editorPopupAnimation = new PopupAnimationHandler();
+    private final PopupAnimationHandler colorPickerPopupAnimation = new PopupAnimationHandler();
+    private final PopupAnimationHandler settingsPopupAnimation = new PopupAnimationHandler();
 
     protected VisualKeystrokesEditorScreenBase(OverlayConfig config) {
         super(Text.literal("Visual Keystrokes"));
@@ -144,6 +166,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         searchField = new TextFieldWidget(textRenderer, 0, 0, SIDEBAR_WIDTH - SIDEBAR_PADDING * 2, SEARCH_HEIGHT, Text.empty());
         searchField.setMaxLength(32);
         searchField.setSuggestion("Search...");
+        searchField.setDrawsBackground(false);
+        searchField.setEditableColor(UiStyle.TEXT_PRIMARY);
+        searchField.setUneditableColor(UiStyle.TEXT_MUTED);
         searchField.setVisible(false);
         addDrawableChild(searchField);
         colorHexField = new TextFieldWidget(textRenderer, 0, 0, 90, COLOR_PICKER_FIELD_HEIGHT, Text.empty());
@@ -160,45 +185,47 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     @Override
     public void tick() {
         super.tick();
-        float target = sidebarOpen ? 1.0f : 0.0f;
-        if (sidebarProgress < target) {
-            sidebarProgress = Math.min(target, sidebarProgress + 0.15f);
-        } else if (sidebarProgress > target) {
-            sidebarProgress = Math.max(target, sidebarProgress - 0.15f);
-        }
+    }
+
+    @Override
+    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+        sidebarOpenAnimation.animateTo(sidebarOpen ? 1.0f : 0.0f, SIDEBAR_TRANSITION_ANIM_MS);
+        sidebarOpenAnimation.tick();
+        sidebarProgress = sidebarOpenAnimation.getValue();
+        infoPopupAnimation.tick();
+        editorPopupAnimation.tick();
+        colorPickerPopupAnimation.tick();
+        settingsPopupAnimation.tick();
 
         if (searchField != null) {
             searchField.setVisible(sidebarProgress > 0.01f);
         }
         if (colorHexField != null) {
-            colorHexField.setVisible(colorPickerOpen);
+            colorHexField.setVisible(colorPickerPopupAnimation.isFullyVisible());
         }
-    }
 
-    @Override
-    public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-        renderInGameBackground(context);
+        UiStyle.drawBackdrop(context, width, height);
 
         drawHeader(context, mouseX, mouseY);
 
         boolean dragging = dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE;
-        drawOverlayBase(context, !dragging);
+        drawOverlayBase(context, !dragging, mouseX, mouseY);
         drawSidebar(context, mouseX, mouseY);
         drawSidebarToggle(context, mouseX, mouseY);
         drawSettingsButton(context, mouseX, mouseY);
         if (dragging) {
-            drawSelectedOverlay(context);
+            drawSelectedOverlay(context, mouseX, mouseY);
         }
-        if (settingsOpen) {
+        if (settingsPopupAnimation.isVisible()) {
             drawSettingsPopup(context, mouseX, mouseY);
         }
-        if (editorOpen) {
+        if (editorPopupAnimation.isVisible()) {
             drawEditorPopup(context, mouseX, mouseY);
         }
-        if (colorPickerOpen) {
+        if (colorPickerPopupAnimation.isVisible()) {
             drawColorPicker(context, mouseX, mouseY);
         }
-        if (infoOpen) {
+        if (infoPopupAnimation.isVisible()) {
             drawInfoPopup(context, mouseX, mouseY);
         }
 
@@ -239,11 +266,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return false;
         }
 
-        if (colorPickerOpen && handleColorPickerClick(mouseX, mouseY)) {
+        if (colorPickerPopupAnimation.isFullyVisible() && handleColorPickerClick(mouseX, mouseY)) {
             return true;
         }
 
-        if (editorOpen && handleEditorPopupClick(mouseX, mouseY)) {
+        if (editorPopupAnimation.isFullyVisible() && handleEditorPopupClick(mouseX, mouseY)) {
             return true;
         }
 
@@ -251,7 +278,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return true;
         }
 
-        if (infoOpen && handleInfoPopupClick(mouseX, mouseY)) {
+        if (infoPopupAnimation.isFullyVisible() && handleInfoPopupClick(mouseX, mouseY)) {
             return true;
         }
 
@@ -259,7 +286,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return true;
         }
 
-        if (settingsOpen && handleSettingsPopupClick(mouseX, mouseY)) {
+        if (settingsPopupAnimation.isFullyVisible() && handleSettingsPopupClick(mouseX, mouseY)) {
             return true;
         }
 
@@ -279,7 +306,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         double overlayY = toOverlayY(mouseY);
 
         Group primary = primarySelected();
-        if (primary != null && primary.isVisible()) {
+        if (primary != null) {
             Bounds selectionBounds = selectedBounds();
             if (selectionBounds != null) {
                 if (hitTestEditIcon(selectionBounds, overlayX, overlayY)) {
@@ -391,11 +418,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return true;
         }
         if (dragMode != DragMode.NONE) {
-            if (dragMode == DragMode.MOVE && !selectedGroups.isEmpty() && isInSidebarArea(mouseX, mouseY)) {
-                for (Group group : selectedGroups) {
-                    group.setVisible(false);
-                }
-                selectedGroups.clear();
+            if (dragMode == DragMode.MOVE && !selectedGroups.isEmpty() && isSelectionPastSidebarDeleteThreshold()) {
+                deleteSelectedGroups();
             }
             if (dragMode == DragMode.LASSO) {
                 selectGroupInLasso();
@@ -510,7 +534,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         return false;
     }
 
-    private void drawOverlayBase(DrawContext context, boolean includeSelected) {
+    private void drawOverlayBase(DrawContext context, boolean includeSelected, int mouseX, int mouseY) {
         float renderScale = RenderSnap.snapScale(config.scale);
         double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
         double offsetY = RenderSnap.snapOffset(config.offsetY, renderScale);
@@ -519,9 +543,6 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         MatrixStackCompat.scale(context.getMatrices(), renderScale, renderScale);
 
         for (OverlayConfig.KeyDefinition key : config.keys) {
-            if (!key.isVisible()) {
-                continue;
-            }
             if (!includeSelected && isKeySelected(key)) {
                 continue;
             }
@@ -530,32 +551,30 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             int width = key.width;
             int height = key.height;
 
-            int background = resolveBackgroundColor(key);
-            int border = resolveBorderColor(key);
-            int textColor = resolveTextColor(key);
-            context.fill(x, y, x + width, y + height, background);
-            drawBorder(context, x, y, width, height, border);
-
-            int textWidth = textRenderer.getWidth(key.label);
-            int textX = x + (width - textWidth) / 2;
-            int textY = y + (height - textRenderer.fontHeight) / 2;
-            context.drawTextWithShadow(textRenderer, key.label, textX, textY, textColor);
+            float alpha = key.isVisible() ? 1.0f : 0.5f;
+            int background = applyAlpha(resolveBackgroundColor(key), alpha);
+            int border = applyAlpha(resolveBorderColor(key), alpha);
+            int textColor = applyAlpha(resolveTextColor(key), alpha);
+            UiStyle.drawKeyCap(context, x, y, width, height, background, border, false);
+            drawScaledKeyText(context, key.label, x, y, width, height, textColor);
         }
 
         if (includeSelected && !selectedGroups.isEmpty()) {
             if (selectedGroups.size() > 1) {
                 for (Group group : selectedGroups) {
-                    if (group.isVisible()) {
-                        drawSelection(context, group.getBounds(), false);
-                    }
+                    drawSelection(context, group.getBounds(), false);
                 }
             }
 
             Bounds combined = selectedBounds();
             if (combined != null) {
                 drawSelection(context, combined, true);
-                drawTrashIcon(context, combined);
-                drawEditIcon(context, combined);
+                double overlayX = toOverlayX(mouseX);
+                double overlayY = toOverlayY(mouseY);
+                boolean trashHovered = hitTestTrashIcon(combined, overlayX, overlayY);
+                boolean editHovered = hitTestEditIcon(combined, overlayX, overlayY);
+                drawTrashIcon(context, combined, trashHovered);
+                drawEditIcon(context, combined, editHovered);
             }
         }
 
@@ -566,10 +585,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         MatrixStackCompat.pop(context.getMatrices());
     }
 
-    private void drawSelectedOverlay(DrawContext context) {
+    private void drawSelectedOverlay(DrawContext context, int mouseX, int mouseY) {
         if (selectedGroups.isEmpty()) {
             return;
         }
+        boolean sidebarDeletePreview = dragMode == DragMode.MOVE && isSelectionPastSidebarDeleteThreshold();
 
         float renderScale = RenderSnap.snapScale(config.scale);
         double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
@@ -580,24 +600,22 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         for (Group group : selectedGroups) {
             for (OverlayConfig.KeyDefinition key : group.keys) {
-                if (!key.isVisible()) {
-                    continue;
-                }
                 int x = key.x;
                 int y = key.y;
                 int width = key.width;
                 int height = key.height;
 
-                int background = resolveBackgroundColor(key);
-                int border = resolveBorderColor(key);
-                int textColor = resolveTextColor(key);
-                context.fill(x, y, x + width, y + height, background);
-                drawBorder(context, x, y, width, height, border);
-
-                int textWidth = textRenderer.getWidth(key.label);
-                int textX = x + (width - textWidth) / 2;
-                int textY = y + (height - textRenderer.fontHeight) / 2;
-                context.drawTextWithShadow(textRenderer, key.label, textX, textY, textColor);
+                float alpha = key.isVisible() ? 1.0f : 0.5f;
+                int background = applyAlpha(resolveBackgroundColor(key), alpha);
+                int border = applyAlpha(resolveBorderColor(key), alpha);
+                int textColor = applyAlpha(resolveTextColor(key), alpha);
+                if (sidebarDeletePreview) {
+                    background = applyAlpha(toGray(background, 1.0f), 0.5f);
+                    border = applyAlpha(toGray(border, 1.0f), 0.5f);
+                    textColor = applyAlpha(toGray(textColor, 1.0f), 0.5f);
+                }
+                UiStyle.drawKeyCap(context, x, y, width, height, background, border, false);
+                drawScaledKeyText(context, key.label, x, y, width, height, textColor);
             }
         }
 
@@ -610,8 +628,12 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         Bounds combined = selectedBounds();
         if (combined != null) {
             drawSelection(context, combined, true);
-            drawTrashIcon(context, combined);
-            drawEditIcon(context, combined);
+            double overlayX = toOverlayX(mouseX);
+            double overlayY = toOverlayY(mouseY);
+            boolean trashHovered = hitTestTrashIcon(combined, overlayX, overlayY);
+            boolean editHovered = hitTestEditIcon(combined, overlayX, overlayY);
+            drawTrashIcon(context, combined, trashHovered);
+            drawEditIcon(context, combined, editHovered);
         }
 
         if ((dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.guidesEnabled) {
@@ -643,13 +665,22 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int sidebarWidth = (int) (SIDEBAR_WIDTH * sidebarProgress);
         int sidebarX = width - sidebarWidth;
 
-        context.fill(sidebarX, 0, width, height, 0xCC111111);
-        context.drawTextWithShadow(textRenderer, "Add Elements", sidebarX + HEADER_PADDING, HEADER_Y, 0xFFFFFFFF);
+        UiStyle.drawPanel(context, sidebarX, 0, sidebarWidth, height);
+        UiStyle.drawSectionHeader(
+            context,
+            textRenderer,
+            "Elements",
+            sidebarX + 6,
+            HEADER_Y - 2,
+            sidebarWidth - 12,
+            UiStyle.ACCENT_GOLD
+        );
         drawResetButton(context, sidebarX, sidebarWidth, mouseX, mouseY);
 
         int searchX = sidebarX + SIDEBAR_PADDING;
-        int searchY = HEADER_Y + 14;
+        int searchY = HEADER_Y + 22;
         int searchWidth = sidebarWidth - SIDEBAR_PADDING * 2;
+        UiStyle.drawInset(context, searchX - 2, searchY - 2, searchWidth + 4, SEARCH_HEIGHT + 4);
         searchField.setX(searchX);
         searchField.setY(searchY);
         searchField.setWidth(searchWidth);
@@ -687,13 +718,20 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             int entryHeight = SIDEBAR_ENTRY_HEIGHT;
             Group existing = groupById.get(template.id);
             boolean active = existing != null && existing.isVisible();
-            int entryColor = isPointInside(mouseX, mouseY, entryX, entryY, entryWidth, entryHeight)
-                ? 0xFF2B2B2B
-                : (active ? 0xFF242424 : 0xFF1E1E1E);
+            boolean hovered = isPointInside(mouseX, mouseY, entryX, entryY, entryWidth, entryHeight);
+            int entryBaseColor = active ? UiStyle.BUTTON_ACTIVE : UiStyle.BUTTON_FILL;
+            int entryColor = AnimationHelper.lerpColor(
+                entryBaseColor,
+                UiStyle.BUTTON_HOVER,
+                getHoverProgress("sidebar-entry-" + template.id, hovered)
+            );
 
             context.fill(entryX, entryY, entryX + entryWidth, entryY + entryHeight, entryColor);
-            drawBorder(context, entryX, entryY, entryWidth, entryHeight, 0xFF000000);
-            context.drawTextWithShadow(textRenderer, template.displayName, entryX + 6, entryY + 7, 0xFFFFFFFF);
+            drawBorder(context, entryX, entryY, entryWidth, entryHeight, UiStyle.EDGE_DARK);
+            if (active) {
+                context.fill(entryX + 2, entryY + 2, entryX + 4, entryY + entryHeight - 2, UiStyle.ACCENT_GOLD);
+            }
+            context.drawTextWithShadow(textRenderer, template.displayName, entryX + 8, entryY + 7, UiStyle.TEXT_PRIMARY);
             y += entryHeight + 6;
         }
         if (listHeight > 0) {
@@ -702,12 +740,12 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         if (sidebarMaxScroll > 0 && listHeight > 0) {
             int trackX = width - SIDEBAR_PADDING - SIDEBAR_SCROLLBAR_WIDTH;
-            context.fill(trackX, listTop, trackX + SIDEBAR_SCROLLBAR_WIDTH, listBottom, 0xFF2B2B2B);
+            context.fill(trackX, listTop, trackX + SIDEBAR_SCROLLBAR_WIDTH, listBottom, UiStyle.PANEL_INSET);
             double ratio = listHeight / (double) totalHeight;
             int thumbHeight = Math.max(12, (int) Math.round(listHeight * ratio));
             int thumbTravel = listHeight - thumbHeight;
             int thumbY = listTop + (int) Math.round((sidebarScroll / sidebarMaxScroll) * thumbTravel);
-            context.fill(trackX, thumbY, trackX + SIDEBAR_SCROLLBAR_WIDTH, thumbY + thumbHeight, 0xFFFFFFFF);
+            context.fill(trackX, thumbY, trackX + SIDEBAR_SCROLLBAR_WIDTH, thumbY + thumbHeight, UiStyle.ACCENT_GOLD);
         }
     }
 
@@ -722,15 +760,29 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         settingsButtonY = height - SETTINGS_BUTTON_SIZE - SIDEBAR_PADDING;
 
         boolean hovered = isPointInside(mouseX, mouseY, settingsButtonX, settingsButtonY, SETTINGS_BUTTON_SIZE, SETTINGS_BUTTON_SIZE);
-        int bgColor = hovered ? 0xFF2B2B2B : 0xFF1E1E1E;
+        int bgColor = AnimationHelper.lerpColor(
+            UiStyle.BUTTON_FILL,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("settings-button", hovered)
+        );
         context.fill(settingsButtonX, settingsButtonY, settingsButtonX + SETTINGS_BUTTON_SIZE, settingsButtonY + SETTINGS_BUTTON_SIZE, bgColor);
-        drawBorder(context, settingsButtonX, settingsButtonY, SETTINGS_BUTTON_SIZE, SETTINGS_BUTTON_SIZE, 0xFF000000);
+        drawBorder(context, settingsButtonX, settingsButtonY, SETTINGS_BUTTON_SIZE, SETTINGS_BUTTON_SIZE, UiStyle.EDGE_DARK);
+        context.fill(settingsButtonX + 2, settingsButtonY + SETTINGS_BUTTON_SIZE - 3, settingsButtonX + SETTINGS_BUTTON_SIZE - 2, settingsButtonY + SETTINGS_BUTTON_SIZE - 2, UiStyle.ACCENT_GOLD);
+        int iconColor = UiStyle.TEXT_PRIMARY;
+        drawSettingsIcon(context, settingsButtonX, settingsButtonY, iconColor);
+    }
 
-        Text gear = Text.literal("⚙");
-        int gearWidth = textRenderer.getWidth(gear);
-        int gearX = settingsButtonX + (SETTINGS_BUTTON_SIZE - gearWidth) / 2;
-        int gearY = settingsButtonY + (SETTINGS_BUTTON_SIZE - textRenderer.fontHeight) / 2;
-        context.drawTextWithShadow(textRenderer, gear, gearX, gearY, 0xFFFFFFFF);
+    private void drawSettingsIcon(DrawContext context, int buttonX, int buttonY, int color) {
+        int centerX = buttonX + SETTINGS_BUTTON_SIZE / 2;
+        int centerY = buttonY + SETTINGS_BUTTON_SIZE / 2;
+        context.fill(centerX - 1, centerY - 6, centerX + 1, centerY - 4, color);
+        context.fill(centerX - 1, centerY + 4, centerX + 1, centerY + 6, color);
+        context.fill(centerX - 6, centerY - 1, centerX - 4, centerY + 1, color);
+        context.fill(centerX + 4, centerY - 1, centerX + 6, centerY + 1, color);
+
+        context.fill(centerX - 4, centerY - 4, centerX + 4, centerY + 4, color);
+        context.fill(centerX - 3, centerY - 3, centerX + 3, centerY + 3, 0xFF2A2A2A);
+        context.fill(centerX - 1, centerY - 1, centerX + 1, centerY + 1, color);
     }
 
     private void drawSidebarToggle(DrawContext context, int mouseX, int mouseY) {
@@ -739,15 +791,20 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int buttonX = width - buttonSize - TOOL_BUTTON_PADDING - sidebarWidth;
         int buttonY = 8;
 
-        int bgColor = 0xCC111111;
-        int borderColor = 0xFF000000;
-        int iconColor = 0xFFFFFFFF;
+        int bgColor = UiStyle.BUTTON_FILL;
+        int borderColor = UiStyle.EDGE_DARK;
+        int iconColor = UiStyle.ACCENT_GOLD;
         int iconSize = 10;
         int iconX = buttonX + (buttonSize - iconSize) / 2;
         int iconY = buttonY + (buttonSize - iconSize) / 2;
         boolean hovered = isPointInside(mouseX, mouseY, buttonX, buttonY, buttonSize, buttonSize);
+        int hoverBg = AnimationHelper.lerpColor(
+            bgColor,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("sidebar-toggle", hovered)
+        );
 
-        context.fill(buttonX, buttonY, buttonX + buttonSize, buttonY + buttonSize, hovered ? 0xDD1A1A1A : bgColor);
+        context.fill(buttonX, buttonY, buttonX + buttonSize, buttonY + buttonSize, hoverBg);
         drawBorder(context, buttonX, buttonY, buttonSize, buttonSize, borderColor);
 
         context.fill(iconX, iconY + iconSize / 2 - 1, iconX + iconSize, iconY + iconSize / 2 + 1, iconColor);
@@ -761,35 +818,41 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         headerWidth = textRenderer.getWidth(title);
         headerHeight = textRenderer.fontHeight;
         headerX = (width - headerWidth) / 2;
-        headerY = 8;
+        headerY = 10;
 
-        context.drawTextWithShadow(textRenderer, title, headerX, headerY, 0xFFFFFFFF);
         boolean hovered = isPointInside(mouseX, mouseY, headerX, headerY, headerWidth, headerHeight);
-        if (hovered || infoOpen) {
-            int underlineY = headerY + headerHeight + 2;
-            context.drawHorizontalLine(headerX, headerX + headerWidth, underlineY, 0xFFFFFFFF);
-        }
+        float headerHover = getHoverProgress("header-title", hovered || infoPopupAnimation.isVisible());
+        int bg = AnimationHelper.lerpColor(0xA010141B, UiStyle.tint(0xA010141B, 16), headerHover);
+        context.fill(headerX - 8, headerY - 4, headerX + headerWidth + 8, headerY + headerHeight + 5, bg);
+        drawBorder(context, headerX - 8, headerY - 4, headerWidth + 16, headerHeight + 9, UiStyle.EDGE_DARK);
+        context.drawTextWithShadow(textRenderer, title, headerX, headerY, UiStyle.TEXT_PRIMARY);
     }
 
     private boolean handleHeaderClick(double mouseX, double mouseY) {
         if (isPointInside(mouseX, mouseY, headerX, headerY, headerWidth, headerHeight)) {
-            infoOpen = true;
+            openInfoPopup();
             return true;
         }
         return false;
     }
 
     private void drawInfoPopup(DrawContext context, int mouseX, int mouseY) {
-        int panelWidth = Math.min(460, width - 80);
-        int panelHeight = 230;
-        int panelX = (width - panelWidth) / 2;
-        int panelY = (height - panelHeight) / 2;
+        infoPanelWidth = Math.min(460, width - 80);
+        infoPanelHeight = 230;
+        infoPanelX = (width - infoPanelWidth) / 2;
+        infoPanelY = (height - infoPanelHeight) / 2;
+        int panelX = infoPanelX;
+        int panelY = infoPanelY;
+        int panelWidth = infoPanelWidth;
+        int panelHeight = infoPanelHeight;
+        context.fill(0, 0, width, height, infoPopupAnimation.getAnimatedBackgroundColor(0x80101010));
+        beginPopupScaleTransform(context, panelX, panelY, panelWidth, panelHeight, infoPopupAnimation);
 
-        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, 0xCC111111);
-        drawBorder(context, panelX, panelY, panelWidth, panelHeight, 0xFF000000);
+        UiStyle.drawPanel(context, panelX, panelY, panelWidth, panelHeight);
+        UiStyle.drawSectionHeader(context, textRenderer, "About", panelX + 10, panelY + 10, panelWidth - 20, UiStyle.ACCENT_BLUE);
 
         int centerX = panelX + panelWidth / 2;
-        int textY = panelY + 26;
+        int textY = panelY + 34;
         drawCenteredText(context, "Visual Keystrokes", centerX, textY);
         textY += 34;
         drawCenteredText(context, "Created by: ryduzz", centerX, textY);
@@ -810,33 +873,76 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         infoCloseX = centerX - buttonWidth / 2;
         infoCloseY = panelY + panelHeight - 36;
 
-        int closeBg = isPointInside(mouseX, mouseY, infoCloseX, infoCloseY, buttonWidth, buttonHeight) ? 0xFF2B2B2B : 0xFF1E1E1E;
+        boolean hoveredClose = isPointInside(mouseX, mouseY, infoCloseX, infoCloseY, buttonWidth, buttonHeight);
+        int closeBg = AnimationHelper.lerpColor(
+            UiStyle.BUTTON_FILL,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("about-close", hoveredClose)
+        );
         context.fill(infoCloseX, infoCloseY, infoCloseX + buttonWidth, infoCloseY + buttonHeight, closeBg);
-        drawBorder(context, infoCloseX, infoCloseY, buttonWidth, buttonHeight, 0xFF000000);
+        drawBorder(context, infoCloseX, infoCloseY, buttonWidth, buttonHeight, UiStyle.EDGE_DARK);
+        context.fill(infoCloseX + 2, infoCloseY + buttonHeight - 3, infoCloseX + buttonWidth - 2, infoCloseY + buttonHeight - 2, UiStyle.ACCENT_RED);
         drawCenteredText(context, closeLabel, centerX, infoCloseY + 7);
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private boolean handleInfoPopupClick(double mouseX, double mouseY) {
         if (isPointInside(mouseX, mouseY, infoCloseX, infoCloseY, infoCloseWidth, infoCloseHeight)) {
-            infoOpen = false;
+            closeInfoPopup();
             return true;
         }
-        return isPointInside(mouseX, mouseY,
-            (width - Math.min(460, width - 80)) / 2,
-            (height - 230) / 2,
-            Math.min(460, width - 80),
-            230);
+        return isPointInside(mouseX, mouseY, infoPanelX, infoPanelY, infoPanelWidth, infoPanelHeight);
+    }
+
+    private void openInfoPopup() {
+        infoOpen = true;
+        infoPopupAnimation.show();
+    }
+
+    private void closeInfoPopup() {
+        infoOpen = false;
+        infoPopupAnimation.hide();
+    }
+
+    private void openSettingsPopup() {
+        settingsOpen = true;
+        settingsPopupAnimation.show();
+    }
+
+    private void closeSettingsPopup() {
+        settingsOpen = false;
+        settingsPopupAnimation.hide();
+    }
+
+    private void beginPopupScaleTransform(DrawContext context, int panelX, int panelY, int panelWidth, int panelHeight, PopupAnimationHandler animation) {
+        float scale = Math.max(0.001f, animation.getPopupProgress());
+        int centerX = panelX + panelWidth / 2;
+        int centerY = panelY + panelHeight / 2;
+        MatrixStackCompat.push(context.getMatrices());
+        MatrixStackCompat.translate(context.getMatrices(), centerX, centerY);
+        MatrixStackCompat.scale(context.getMatrices(), scale, scale);
+        MatrixStackCompat.translate(context.getMatrices(), -centerX, -centerY);
+    }
+
+    private void beginPopupScaleTransformBottomRight(DrawContext context, int panelX, int panelY, int panelWidth, int panelHeight, PopupAnimationHandler animation) {
+        float scale = Math.max(0.001f, animation.getPopupProgress());
+        int anchorX = panelX + panelWidth;
+        int anchorY = panelY + panelHeight;
+        MatrixStackCompat.push(context.getMatrices());
+        MatrixStackCompat.translate(context.getMatrices(), anchorX, anchorY);
+        MatrixStackCompat.scale(context.getMatrices(), scale, scale);
+        MatrixStackCompat.translate(context.getMatrices(), -anchorX, -anchorY);
     }
 
 
     private void drawCenteredText(DrawContext context, String text, int centerX, int y) {
         int textWidth = textRenderer.getWidth(text);
-        context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, UiStyle.TEXT_PRIMARY);
     }
 
     private void drawCenteredText(DrawContext context, Text text, int centerX, int y) {
         int textWidth = textRenderer.getWidth(text);
-        context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, UiStyle.TEXT_PRIMARY);
     }
 
     protected boolean handleSearchFieldClickLegacy(double mouseX, double mouseY, int button) {
@@ -1015,21 +1121,28 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private void drawResetButton(DrawContext context, int sidebarX, int sidebarWidth, int mouseX, int mouseY) {
         Text label = Text.literal("Reset");
         int textWidth = textRenderer.getWidth(label);
-        int buttonWidth = textWidth + RESET_PADDING_X * 2;
-        int buttonHeight = textRenderer.fontHeight + RESET_PADDING_Y * 2;
+        int buttonHeight = SETTINGS_BUTTON_SIZE;
+        int buttonWidth = Math.max(46, textWidth + RESET_PADDING_X * 2);
+        int settingsY = height - SETTINGS_BUTTON_SIZE - SIDEBAR_PADDING;
 
         resetWidth = Math.min(buttonWidth, sidebarWidth - HEADER_PADDING * 2);
         resetHeight = buttonHeight;
-        resetX = sidebarX + sidebarWidth - HEADER_PADDING - resetWidth;
-        resetY = HEADER_Y - RESET_PADDING_Y;
+        resetX = sidebarX + SIDEBAR_PADDING;
+        resetY = settingsY;
 
-        int bg = isPointInside(mouseX, mouseY, resetX, resetY, resetWidth, resetHeight) ? 0xFF2B2B2B : 0xFF1E1E1E;
+        boolean hovered = isPointInside(mouseX, mouseY, resetX, resetY, resetWidth, resetHeight);
+        int bg = AnimationHelper.lerpColor(
+            UiStyle.BUTTON_FILL,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("sidebar-reset", hovered)
+        );
         context.fill(resetX, resetY, resetX + resetWidth, resetY + resetHeight, bg);
-        drawBorder(context, resetX, resetY, resetWidth, resetHeight, 0xFF000000);
+        drawBorder(context, resetX, resetY, resetWidth, resetHeight, UiStyle.EDGE_DARK);
+        context.fill(resetX + 2, resetY + resetHeight - 3, resetX + resetWidth - 2, resetY + resetHeight - 2, UiStyle.ACCENT_RED);
 
         int textX = resetX + (resetWidth - textWidth) / 2;
         int textY = resetY + (resetHeight - textRenderer.fontHeight) / 2;
-        context.drawTextWithShadow(textRenderer, label, textX, textY, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, label, textX, textY, UiStyle.TEXT_PRIMARY);
     }
 
     private boolean handleResetClick(double mouseX, double mouseY) {
@@ -1048,8 +1161,10 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return false;
         }
         if (isPointInside(mouseX, mouseY, settingsButtonX, settingsButtonY, SETTINGS_BUTTON_SIZE, SETTINGS_BUTTON_SIZE)) {
-            settingsOpen = !settingsOpen;
             if (settingsOpen) {
+                closeSettingsPopup();
+            } else {
+                openSettingsPopup();
                 closeEditor();
             }
             return true;
@@ -1060,36 +1175,42 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private void drawSettingsPopup(DrawContext context, int mouseX, int mouseY) {
         settingsPanelX = settingsButtonX - SETTINGS_PANEL_WIDTH + SETTINGS_BUTTON_SIZE;
         settingsPanelY = settingsButtonY - SETTINGS_PANEL_HEIGHT - 8;
+        beginPopupScaleTransformBottomRight(context, settingsPanelX, settingsPanelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT, settingsPopupAnimation);
 
-        context.fill(settingsPanelX, settingsPanelY, settingsPanelX + SETTINGS_PANEL_WIDTH, settingsPanelY + SETTINGS_PANEL_HEIGHT, 0xCC111111);
-        drawBorder(context, settingsPanelX, settingsPanelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT, 0xFF000000);
+        UiStyle.drawPanel(context, settingsPanelX, settingsPanelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT);
+        UiStyle.drawSectionHeader(
+            context,
+            textRenderer,
+            "Layout Settings",
+            settingsPanelX + 8,
+            settingsPanelY + 8,
+            SETTINGS_PANEL_WIDTH - 16,
+            UiStyle.ACCENT_GOLD
+        );
 
         int left = settingsPanelX + 12;
-        int top = settingsPanelY + 12;
+        int top = settingsPanelY + 32;
         int lineHeight = 22;
 
         drawSettingsRow(context, "Snapping", config.snappingEnabled, left, top);
         drawSettingsRow(context, "Guides", config.guidesEnabled, left, top + lineHeight);
         drawSettingsRow(context, "Distance Labels", config.distanceLabelsEnabled, left, top + lineHeight * 2);
         drawThresholdRow(context, left, top + lineHeight * 3);
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private void drawSettingsRow(DrawContext context, String label, boolean enabled, int x, int y) {
-        context.drawTextWithShadow(textRenderer, label, x, y + 4, 0xFFFFFFFF);
-        String value = enabled ? "On" : "Off";
-        int valueWidth = textRenderer.getWidth(value);
-        int buttonWidth = 44;
-        int buttonHeight = 18;
+        context.drawTextWithShadow(textRenderer, label, x, y + 4, UiStyle.TEXT_PRIMARY);
+        int buttonWidth = 50;
+        int buttonHeight = 16;
         int buttonX = settingsPanelX + SETTINGS_PANEL_WIDTH - 12 - buttonWidth;
-        int buttonY = y;
-        context.fill(buttonX, buttonY, buttonX + buttonWidth, buttonY + buttonHeight, 0xFF1E1E1E);
-        drawBorder(context, buttonX, buttonY, buttonWidth, buttonHeight, 0xFF000000);
-        context.drawTextWithShadow(textRenderer, value, buttonX + (buttonWidth - valueWidth) / 2, buttonY + 5, 0xFFFFFFFF);
+        float toggleProgress = getToggleProgress("settings-toggle-" + label, enabled);
+        UiStyle.drawToggle(context, buttonX, y + 1, buttonWidth, buttonHeight, toggleProgress, false);
     }
 
     private void drawThresholdRow(DrawContext context, int x, int y) {
         String label = "Snap Threshold";
-        context.drawTextWithShadow(textRenderer, label, x, y + 4, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, label, x, y + 4, UiStyle.TEXT_PRIMARY);
         int value = Math.max(1, config.snapThreshold);
         String valueText = Integer.toString(value);
         int buttonSize = 18;
@@ -1099,44 +1220,44 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int plusX = right - buttonSize;
         int buttonY = y;
 
-        context.fill(minusX, buttonY, minusX + buttonSize, buttonY + buttonSize, 0xFF1E1E1E);
-        drawBorder(context, minusX, buttonY, buttonSize, buttonSize, 0xFF000000);
-        context.fill(minusX + 4, buttonY + buttonSize / 2 - 1, minusX + buttonSize - 4, buttonY + buttonSize / 2 + 1, 0xFFFFFFFF);
+        context.fill(minusX, buttonY, minusX + buttonSize, buttonY + buttonSize, UiStyle.BUTTON_FILL);
+        drawBorder(context, minusX, buttonY, buttonSize, buttonSize, UiStyle.EDGE_DARK);
+        context.fill(minusX + 4, buttonY + buttonSize / 2 - 1, minusX + buttonSize - 4, buttonY + buttonSize / 2 + 1, UiStyle.TEXT_PRIMARY);
 
-        context.fill(plusX, buttonY, plusX + buttonSize, buttonY + buttonSize, 0xFF1E1E1E);
-        drawBorder(context, plusX, buttonY, buttonSize, buttonSize, 0xFF000000);
-        context.fill(plusX + 4, buttonY + buttonSize / 2 - 1, plusX + buttonSize - 4, buttonY + buttonSize / 2 + 1, 0xFFFFFFFF);
-        context.fill(plusX + buttonSize / 2 - 1, buttonY + 4, plusX + buttonSize / 2 + 1, buttonY + buttonSize - 4, 0xFFFFFFFF);
+        context.fill(plusX, buttonY, plusX + buttonSize, buttonY + buttonSize, UiStyle.BUTTON_FILL);
+        drawBorder(context, plusX, buttonY, buttonSize, buttonSize, UiStyle.EDGE_DARK);
+        context.fill(plusX + 4, buttonY + buttonSize / 2 - 1, plusX + buttonSize - 4, buttonY + buttonSize / 2 + 1, UiStyle.TEXT_PRIMARY);
+        context.fill(plusX + buttonSize / 2 - 1, buttonY + 4, plusX + buttonSize / 2 + 1, buttonY + buttonSize - 4, UiStyle.TEXT_PRIMARY);
 
         int valueWidth = textRenderer.getWidth(valueText);
         int valueX = minusX - gap - valueWidth;
-        context.drawTextWithShadow(textRenderer, valueText, valueX, buttonY + 5, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, valueText, valueX, buttonY + 5, UiStyle.ACCENT_GOLD);
     }
 
     private boolean handleSettingsPopupClick(double mouseX, double mouseY) {
         if (!isPointInside(mouseX, mouseY, settingsPanelX, settingsPanelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT)) {
-            settingsOpen = false;
+            closeSettingsPopup();
             return false;
         }
 
         int left = settingsPanelX + 12;
-        int top = settingsPanelY + 12;
+        int top = settingsPanelY + 32;
         int lineHeight = 22;
-        int buttonWidth = 44;
-        int buttonHeight = 18;
+        int buttonWidth = 50;
+        int buttonHeight = 16;
         int buttonX = settingsPanelX + SETTINGS_PANEL_WIDTH - 12 - buttonWidth;
 
-        if (isPointInside(mouseX, mouseY, buttonX, top, buttonWidth, buttonHeight)) {
+        if (isPointInside(mouseX, mouseY, buttonX, top + 1, buttonWidth, buttonHeight)) {
             config.snappingEnabled = !config.snappingEnabled;
             OverlayConfig.save(config);
             return true;
         }
-        if (isPointInside(mouseX, mouseY, buttonX, top + lineHeight, buttonWidth, buttonHeight)) {
+        if (isPointInside(mouseX, mouseY, buttonX, top + lineHeight + 1, buttonWidth, buttonHeight)) {
             config.guidesEnabled = !config.guidesEnabled;
             OverlayConfig.save(config);
             return true;
         }
-        if (isPointInside(mouseX, mouseY, buttonX, top + lineHeight * 2, buttonWidth, buttonHeight)) {
+        if (isPointInside(mouseX, mouseY, buttonX, top + lineHeight * 2 + 1, buttonWidth, buttonHeight)) {
             config.distanceLabelsEnabled = !config.distanceLabelsEnabled;
             OverlayConfig.save(config);
             return true;
@@ -1174,25 +1295,43 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         editorPanelX = (width - editorPanelWidth) / 2;
         editorPanelY = (height - editorPanelHeight) / 2;
         editorPanelY = Math.max(20, editorPanelY);
+        context.fill(0, 0, width, height, editorPopupAnimation.getAnimatedBackgroundColor(0x80101010));
+        beginPopupScaleTransform(context, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight, editorPopupAnimation);
 
-        context.fill(editorPanelX, editorPanelY, editorPanelX + editorPanelWidth, editorPanelY + editorPanelHeight, 0xCC111111);
-        drawBorder(context, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight, 0xFF000000);
+        UiStyle.drawPanel(context, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight);
+        UiStyle.drawSectionHeader(
+            context,
+            textRenderer,
+            "Appearance",
+            editorPanelX + 8,
+            editorPanelY + 8,
+            editorPanelWidth - 16,
+            UiStyle.ACCENT_GOLD
+        );
 
+        int headerY = editorPanelY + 8;
+        int headerHeight = textRenderer.fontHeight + 6;
+        int contentTop = headerY + headerHeight + 8;
         int titleX = editorPanelX + 12;
-        int titleY = editorPanelY + 12;
+        int titleY = contentTop;
         String title = selectedGroups.size() == 1
             ? "Edit " + primarySelected().displayName
             : "Edit " + selectedGroups.size() + " Elements";
-        context.drawTextWithShadow(textRenderer, title, titleX, titleY, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, title, titleX, titleY, UiStyle.TEXT_PRIMARY);
 
         editorCloseWidth = 14;
         editorCloseHeight = 14;
         editorCloseX = editorPanelX + editorPanelWidth - editorCloseWidth - 8;
-        editorCloseY = editorPanelY + 8;
-        int closeBg = isPointInside(mouseX, mouseY, editorCloseX, editorCloseY, editorCloseWidth, editorCloseHeight) ? 0xFF2B2B2B : 0xFF1E1E1E;
+        editorCloseY = contentTop - 2;
+        boolean closeHovered = isPointInside(mouseX, mouseY, editorCloseX, editorCloseY, editorCloseWidth, editorCloseHeight);
+        int closeBg = AnimationHelper.lerpColor(
+            UiStyle.BUTTON_FILL,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("editor-close", closeHovered)
+        );
         context.fill(editorCloseX, editorCloseY, editorCloseX + editorCloseWidth, editorCloseY + editorCloseHeight, closeBg);
-        drawBorder(context, editorCloseX, editorCloseY, editorCloseWidth, editorCloseHeight, 0xFF000000);
-        context.drawTextWithShadow(textRenderer, "X", editorCloseX + 4, editorCloseY + 3, 0xFFFFFFFF);
+        drawBorder(context, editorCloseX, editorCloseY, editorCloseWidth, editorCloseHeight, UiStyle.EDGE_DARK);
+        context.drawTextWithShadow(textRenderer, "X", editorCloseX + 4, editorCloseY + 3, UiStyle.ACCENT_RED);
 
         int rowStartY = titleY + 20;
         int rowHeight = 24;
@@ -1207,21 +1346,46 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         for (int i = 0; i < targets.length; i++) {
             int rowY = rowStartY + i * rowHeight;
-            context.drawTextWithShadow(textRenderer, labels[i], titleX, rowY + 4, 0xFFFFFFFF);
+            context.drawTextWithShadow(textRenderer, labels[i], titleX, rowY + 4, UiStyle.TEXT_PRIMARY);
 
             ColorState state = selectionColorState(targets[i]);
             int boxX = editorPanelX + editorPanelWidth - 12 - boxSize;
             int boxY = rowY + 2;
             context.fill(boxX, boxY, boxX + boxSize, boxY + boxSize, state.color);
-            drawBorder(context, boxX, boxY, boxSize, boxSize, 0xFF000000);
+            drawBorder(context, boxX, boxY, boxSize, boxSize, UiStyle.EDGE_DARK);
             if (state.mixed) {
                 String mixed = "Mixed";
                 int mixedWidth = textRenderer.getWidth(mixed);
-                context.drawTextWithShadow(textRenderer, mixed, boxX - mixedWidth - 6, rowY + 4, 0xFFA0A0A0);
+                context.drawTextWithShadow(textRenderer, mixed, boxX - mixedWidth - 6, rowY + 4, UiStyle.TEXT_MUTED);
             }
         }
 
-        int controlsY = rowStartY + targets.length * rowHeight + 6;
+        int pressedOpacityY = rowStartY + targets.length * rowHeight;
+        PressedOpacityState pressedOpacityState = selectionPressedOpacityState();
+        context.drawTextWithShadow(textRenderer, "Press Opacity", titleX, pressedOpacityY + 4, UiStyle.TEXT_PRIMARY);
+        int opacityButtonSize = 18;
+        int opacityGap = 4;
+        int opacityRight = editorPanelX + editorPanelWidth - 12;
+        int opacityMinusX = opacityRight - opacityButtonSize * 2 - opacityGap;
+        int opacityPlusX = opacityRight - opacityButtonSize;
+        context.fill(opacityMinusX, pressedOpacityY, opacityMinusX + opacityButtonSize, pressedOpacityY + opacityButtonSize, UiStyle.BUTTON_FILL);
+        drawBorder(context, opacityMinusX, pressedOpacityY, opacityButtonSize, opacityButtonSize, UiStyle.EDGE_DARK);
+        context.fill(opacityMinusX + 4, pressedOpacityY + opacityButtonSize / 2 - 1, opacityMinusX + opacityButtonSize - 4, pressedOpacityY + opacityButtonSize / 2 + 1, UiStyle.TEXT_PRIMARY);
+        context.fill(opacityPlusX, pressedOpacityY, opacityPlusX + opacityButtonSize, pressedOpacityY + opacityButtonSize, UiStyle.BUTTON_FILL);
+        drawBorder(context, opacityPlusX, pressedOpacityY, opacityButtonSize, opacityButtonSize, UiStyle.EDGE_DARK);
+        context.fill(opacityPlusX + 4, pressedOpacityY + opacityButtonSize / 2 - 1, opacityPlusX + opacityButtonSize - 4, pressedOpacityY + opacityButtonSize / 2 + 1, UiStyle.TEXT_PRIMARY);
+        context.fill(opacityPlusX + opacityButtonSize / 2 - 1, pressedOpacityY + 4, opacityPlusX + opacityButtonSize / 2 + 1, pressedOpacityY + opacityButtonSize - 4, UiStyle.TEXT_PRIMARY);
+        String opacityText = Math.round(pressedOpacityState.opacity * 100.0f) + "%";
+        int opacityTextWidth = textRenderer.getWidth(opacityText);
+        int opacityTextX = opacityMinusX - opacityGap - opacityTextWidth;
+        context.drawTextWithShadow(textRenderer, opacityText, opacityTextX, pressedOpacityY + 5, UiStyle.ACCENT_GOLD);
+        if (pressedOpacityState.mixed) {
+            String mixed = "Mixed";
+            int mixedWidth = textRenderer.getWidth(mixed);
+            context.drawTextWithShadow(textRenderer, mixed, opacityTextX - mixedWidth - 6, pressedOpacityY + 5, UiStyle.TEXT_MUTED);
+        }
+
+        int controlsY = pressedOpacityY + rowHeight + 6;
         int buttonWidth = 80;
         int buttonHeight = 18;
 
@@ -1230,30 +1394,36 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         editorVisibilityHeight = buttonHeight;
         editorVisibilityX = editorPanelX + editorPanelWidth - 12 - buttonWidth;
         editorVisibilityY = controlsY;
-        int visibilityBg = isPointInside(mouseX, mouseY, editorVisibilityX, editorVisibilityY, editorVisibilityWidth, editorVisibilityHeight)
-            ? 0xFF2B2B2B
-            : 0xFF1E1E1E;
+        boolean visibilityHovered = isPointInside(mouseX, mouseY, editorVisibilityX, editorVisibilityY, editorVisibilityWidth, editorVisibilityHeight);
+        int visibilityBg = AnimationHelper.lerpColor(
+            UiStyle.BUTTON_FILL,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("editor-visibility", visibilityHovered)
+        );
         context.fill(editorVisibilityX, editorVisibilityY, editorVisibilityX + editorVisibilityWidth, editorVisibilityY + editorVisibilityHeight, visibilityBg);
-        drawBorder(context, editorVisibilityX, editorVisibilityY, editorVisibilityWidth, editorVisibilityHeight, 0xFF000000);
+        drawBorder(context, editorVisibilityX, editorVisibilityY, editorVisibilityWidth, editorVisibilityHeight, UiStyle.EDGE_DARK);
         int visibilityTextWidth = textRenderer.getWidth(visibilityLabel);
         context.drawTextWithShadow(
             textRenderer,
             visibilityLabel,
             editorVisibilityX + (editorVisibilityWidth - visibilityTextWidth) / 2,
             editorVisibilityY + 5,
-            0xFFFFFFFF
+            UiStyle.TEXT_PRIMARY
         );
-        context.drawTextWithShadow(textRenderer, "Visibility", titleX, controlsY + 4, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, "Visibility", titleX, controlsY + 4, UiStyle.TEXT_PRIMARY);
 
         editorResetWidth = 110;
         editorResetHeight = buttonHeight;
         editorResetX = editorPanelX + editorPanelWidth - 12 - editorResetWidth;
         editorResetY = controlsY + rowHeight;
-        int resetBg = isPointInside(mouseX, mouseY, editorResetX, editorResetY, editorResetWidth, editorResetHeight)
-            ? 0xFF2B2B2B
-            : 0xFF1E1E1E;
+        boolean resetHovered = isPointInside(mouseX, mouseY, editorResetX, editorResetY, editorResetWidth, editorResetHeight);
+        int resetBg = AnimationHelper.lerpColor(
+            UiStyle.BUTTON_FILL,
+            UiStyle.BUTTON_HOVER,
+            getHoverProgress("editor-reset-colors", resetHovered)
+        );
         context.fill(editorResetX, editorResetY, editorResetX + editorResetWidth, editorResetY + editorResetHeight, resetBg);
-        drawBorder(context, editorResetX, editorResetY, editorResetWidth, editorResetHeight, 0xFF000000);
+        drawBorder(context, editorResetX, editorResetY, editorResetWidth, editorResetHeight, UiStyle.EDGE_DARK);
         String resetLabel = "Reset Colors";
         int resetTextWidth = textRenderer.getWidth(resetLabel);
         context.drawTextWithShadow(
@@ -1261,9 +1431,10 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             resetLabel,
             editorResetX + (editorResetWidth - resetTextWidth) / 2,
             editorResetY + 5,
-            0xFFFFFFFF
+            UiStyle.TEXT_PRIMARY
         );
-        context.drawTextWithShadow(textRenderer, "Overrides", titleX, editorResetY + 4, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, "Overrides", titleX, editorResetY + 4, UiStyle.TEXT_PRIMARY);
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private boolean handleEditorPopupClick(double mouseX, double mouseY) {
@@ -1277,7 +1448,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return true;
         }
 
-        int rowStartY = editorPanelY + 32;
+        int headerY = editorPanelY + 8;
+        int headerHeight = textRenderer.fontHeight + 6;
+        int contentTop = headerY + headerHeight + 8;
+        int titleY = contentTop;
+        int rowStartY = titleY + 20;
         int rowHeight = 24;
         int boxSize = 14;
         ColorTarget[] targets = new ColorTarget[] {
@@ -1295,6 +1470,24 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
                 openColorPicker(targets[i]);
                 return true;
             }
+        }
+
+        int pressedOpacityY = rowStartY + targets.length * rowHeight;
+        int opacityButtonSize = 18;
+        int opacityGap = 4;
+        int opacityRight = editorPanelX + editorPanelWidth - 12;
+        int opacityMinusX = opacityRight - opacityButtonSize * 2 - opacityGap;
+        int opacityPlusX = opacityRight - opacityButtonSize;
+
+        if (isPointInside(mouseX, mouseY, opacityMinusX, pressedOpacityY, opacityButtonSize, opacityButtonSize)) {
+            adjustSelectionPressedOpacity(-PRESSED_OPACITY_STEP);
+            OverlayConfig.save(config);
+            return true;
+        }
+        if (isPointInside(mouseX, mouseY, opacityPlusX, pressedOpacityY, opacityButtonSize, opacityButtonSize)) {
+            adjustSelectionPressedOpacity(PRESSED_OPACITY_STEP);
+            OverlayConfig.save(config);
+            return true;
         }
 
         if (isPointInside(mouseX, mouseY, editorVisibilityX, editorVisibilityY, editorVisibilityWidth, editorVisibilityHeight)) {
@@ -1333,9 +1526,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         colorPickerY = panelY;
         colorPickerWidth = panelWidth;
         colorPickerHeight = panelHeight;
+        beginPopupScaleTransform(context, panelX, panelY, panelWidth, panelHeight, colorPickerPopupAnimation);
 
-        context.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, 0xCC111111);
-        drawBorder(context, panelX, panelY, panelWidth, panelHeight, 0xFF000000);
+        UiStyle.drawPanel(context, panelX, panelY, panelWidth, panelHeight);
 
         int wheelCenterX = colorWheelCenterX();
         int wheelCenterY = colorWheelCenterY();
@@ -1344,14 +1537,14 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         int indicatorX = wheelCenterX + Math.round((float) Math.cos(pickerHue * Math.PI * 2) * pickerSaturation * COLOR_PICKER_RADIUS);
         int indicatorY = wheelCenterY + Math.round((float) Math.sin(pickerHue * Math.PI * 2) * pickerSaturation * COLOR_PICKER_RADIUS);
-        context.drawHorizontalLine(indicatorX - 2, indicatorX + 2, indicatorY, 0xFFFFFFFF);
-        context.drawVerticalLine(indicatorX, indicatorY - 2, indicatorY + 2, 0xFFFFFFFF);
+        context.drawHorizontalLine(indicatorX - 2, indicatorX + 2, indicatorY, UiStyle.TEXT_PRIMARY);
+        context.drawVerticalLine(indicatorX, indicatorY - 2, indicatorY + 2, UiStyle.TEXT_PRIMARY);
 
         int sliderX = colorValueSliderX();
         int sliderY = colorValueSliderY();
         int sliderHeight = colorValueSliderHeight();
         int valueY = sliderY + Math.round((1.0f - pickerValue) * (sliderHeight - 1));
-        context.drawHorizontalLine(sliderX - 1, sliderX + COLOR_PICKER_SLIDER_WIDTH, valueY, 0xFFFFFFFF);
+        context.drawHorizontalLine(sliderX - 1, sliderX + COLOR_PICKER_SLIDER_WIDTH, valueY, UiStyle.TEXT_PRIMARY);
 
         int fieldX = panelX + COLOR_PICKER_PADDING;
         int fieldY = panelY + COLOR_PICKER_PADDING + COLOR_PICKER_RADIUS * 2 + 10;
@@ -1360,9 +1553,10 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             colorHexField.setX(fieldX);
             colorHexField.setY(fieldY);
             colorHexField.setWidth(fieldWidth);
-            colorHexField.setVisible(true);
+            colorHexField.setVisible(colorPickerPopupAnimation.isFullyVisible());
         }
-        context.drawTextWithShadow(textRenderer, "Hex", fieldX, fieldY - 10, 0xFFFFFFFF);
+        context.drawTextWithShadow(textRenderer, "Hex", fieldX, fieldY - 10, UiStyle.TEXT_PRIMARY);
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private boolean handleColorPickerClick(double mouseX, double mouseY) {
@@ -1410,11 +1604,13 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return;
         }
         editorOpen = true;
-        settingsOpen = false;
+        editorPopupAnimation.show();
+        closeSettingsPopup();
     }
 
     private void closeEditor() {
         editorOpen = false;
+        editorPopupAnimation.hide();
         closeColorPicker();
     }
 
@@ -1424,6 +1620,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
         activeColorTarget = target;
         colorPickerOpen = true;
+        colorPickerPopupAnimation.show();
         colorPickerDragArea = ColorPickerDragArea.NONE;
         ColorState state = selectionColorState(target);
         updatePickerFromColor(state.color);
@@ -1432,6 +1629,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
     private void closeColorPicker() {
         colorPickerOpen = false;
+        colorPickerPopupAnimation.hide();
         colorPickerDragArea = ColorPickerDragArea.NONE;
         if (colorHexField != null) {
             colorHexField.setFocused(false);
@@ -1507,8 +1705,41 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             setColorOverride(key, ColorTarget.PRESSED, null);
             setColorOverride(key, ColorTarget.BORDER, null);
             setColorOverride(key, ColorTarget.TEXT, null);
+            key.pressedOpacityOverride = null;
         }
         OverlayConfig.save(config);
+    }
+
+    private PressedOpacityState selectionPressedOpacityState() {
+        List<OverlayConfig.KeyDefinition> keys = keysForSelectedGroups();
+        float fallback = clamp01(config.pressedOpacity);
+        if (keys.isEmpty()) {
+            return new PressedOpacityState(fallback, false);
+        }
+        float opacity = resolvePressedOpacity(keys.get(0));
+        boolean mixed = false;
+        for (OverlayConfig.KeyDefinition key : keys) {
+            if (Math.abs(resolvePressedOpacity(key) - opacity) > 0.0001f) {
+                mixed = true;
+                break;
+            }
+        }
+        return new PressedOpacityState(opacity, mixed);
+    }
+
+    private float resolvePressedOpacity(OverlayConfig.KeyDefinition key) {
+        return clamp01(key.pressedOpacityOverride == null ? config.pressedOpacity : key.pressedOpacityOverride);
+    }
+
+    private void adjustSelectionPressedOpacity(float delta) {
+        List<OverlayConfig.KeyDefinition> keys = keysForSelectedGroups();
+        if (keys.isEmpty()) {
+            return;
+        }
+        float next = clamp01(resolvePressedOpacity(keys.get(0)) + delta);
+        for (OverlayConfig.KeyDefinition key : keys) {
+            key.pressedOpacityOverride = next;
+        }
     }
 
     private void toggleSelectionVisibility() {
@@ -1771,7 +2002,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int width = bounds.width;
         int height = bounds.height;
 
-        int outlineColor = 0xFFFFFFFF;
+        int outlineColor = UiStyle.ACCENT_GOLD;
         context.drawHorizontalLine(x, x + width, y, outlineColor);
         context.drawHorizontalLine(x, x + width, y + height, outlineColor);
         context.drawVerticalLine(x, y, y + height, outlineColor);
@@ -1785,14 +2016,19 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
     }
 
-    private void drawTrashIcon(DrawContext context, Bounds bounds) {
+    private void drawTrashIcon(DrawContext context, Bounds bounds, boolean hovered) {
         int trashX = trashIconX(bounds);
         int trashY = trashIconY(bounds);
         int size = TRASH_SIZE;
+        float hover = getHoverProgress("selection-trash-icon", hovered);
 
-        int outline = 0xFFFFFFFF;
-        int fill = 0xFF1A1A1A;
+        int outline = AnimationHelper.lerpColor(UiStyle.ACCENT_RED, UiStyle.tint(UiStyle.ACCENT_RED, 28), hover);
+        int fill = AnimationHelper.lerpColor(UiStyle.PANEL_INSET, UiStyle.tint(UiStyle.PANEL_INSET, 22), hover);
         int lidHeight = 2;
+        if (hover > 0.01f) {
+            int hoverBg = applyAlpha(AnimationHelper.lerpColor(0x00000000, UiStyle.ACCENT_RED, hover), 0.18f * hover);
+            context.fill(trashX - 2, trashY - 2, trashX + size + 2, trashY + size + 2, hoverBg);
+        }
 
         int right = trashX + size - 1;
         int bottom = trashY + size - 1;
@@ -1822,10 +2058,15 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         context.drawVerticalLine(slatRight, slatTop, slatBottom, outline);
     }
 
-    private void drawEditIcon(DrawContext context, Bounds bounds) {
+    private void drawEditIcon(DrawContext context, Bounds bounds, boolean hovered) {
         int iconX = editIconX(bounds);
         int iconY = editIconY(bounds);
-        int color = 0xFFFFFFFF;
+        float hover = getHoverProgress("selection-edit-icon", hovered);
+        int color = AnimationHelper.lerpColor(UiStyle.ACCENT_GREEN, UiStyle.tint(UiStyle.ACCENT_GREEN, 26), hover);
+        if (hover > 0.01f) {
+            int hoverBg = applyAlpha(AnimationHelper.lerpColor(0x00000000, UiStyle.ACCENT_GREEN, hover), 0.18f * hover);
+            context.fill(iconX - 2, iconY - 2, iconX + EDIT_ICON_SIZE + 2, iconY + EDIT_ICON_SIZE + 2, hoverBg);
+        }
 
         context.drawHorizontalLine(iconX + 1, iconX + 4, iconY + 1, color);
         context.drawHorizontalLine(iconX + 2, iconX + 5, iconY + 2, color);
@@ -1845,8 +2086,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return;
         }
 
-        int fill = 0x22FFFFFF;
-        int outline = 0xFFFFFFFF;
+        int fill = 0x2230C8FF;
+        int outline = UiStyle.ACCENT_BLUE;
         context.fill(left, top, right, bottom, fill);
         context.drawHorizontalLine(left, right, top, outline);
         context.drawHorizontalLine(left, right, bottom, outline);
@@ -1856,8 +2097,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
     private void drawHandle(DrawContext context, int x, int y) {
         int size = HANDLE_SIZE;
-        context.fill(x, y, x + size, y + size, 0xFFFFFFFF);
-        drawBorder(context, x, y, size, size, 0xFF000000);
+        context.fill(x, y, x + size, y + size, UiStyle.ACCENT_GOLD);
+        drawBorder(context, x, y, size, size, UiStyle.EDGE_DARK);
     }
 
     private void resizeSelectedGroup(double overlayX, double overlayY) {
@@ -1990,13 +2231,20 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
 
-    private boolean isInSidebarArea(double mouseX, double mouseY) {
+    private boolean isSelectionPastSidebarDeleteThreshold() {
         if (sidebarProgress <= 0.01f) {
             return false;
         }
+        Bounds selection = selectedBounds();
+        if (selection == null) {
+            return false;
+        }
+        float renderScale = RenderSnap.snapScale(config.scale);
+        double offsetX = RenderSnap.snapOffset(config.offsetX, renderScale);
+        double selectionCenterScreenX = offsetX + (selection.x + selection.width / 2.0) * renderScale;
         int sidebarWidth = (int) (SIDEBAR_WIDTH * sidebarProgress);
         int sidebarX = width - sidebarWidth;
-        return mouseX >= sidebarX && mouseY >= 0 && mouseY <= height;
+        return selectionCenterScreenX >= sidebarX;
     }
 
     private void selectGroupInLasso() {
@@ -2015,7 +2263,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         Bounds lasso = new Bounds(left, top, right - left, bottom - top);
         selectedGroups.clear();
         for (Group group : groups) {
-            if (group.isVisible() && group.intersects(lasso)) {
+            if (group.intersects(lasso)) {
                 selectedGroups.add(group);
             }
         }
@@ -2038,7 +2286,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         Bounds lasso = new Bounds(left, top, right - left, bottom - top);
         selectedGroups.clear();
         for (Group group : groups) {
-            if (group.isVisible() && group.intersects(lasso)) {
+            if (group.intersects(lasso)) {
                 selectedGroups.add(group);
             }
         }
@@ -2457,7 +2705,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             }
 
             for (Group group : groups) {
-                if (!group.isVisible() || selectedGroups.contains(group)) {
+                if (selectedGroups.contains(group)) {
                     continue;
                 }
                 Bounds bounds = group.getBounds();
@@ -2606,8 +2854,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             int textWidth = textRenderer.getWidth(text);
             int x = label.x - textWidth / 2;
             int y = label.y - textRenderer.fontHeight / 2;
-            context.fill(x - 2, y - 2, x + textWidth + 2, y + textRenderer.fontHeight + 2, 0xCC111111);
-            context.drawTextWithShadow(textRenderer, text, x, y, 0xFFFFFFFF);
+            context.fill(x - 2, y - 2, x + textWidth + 2, y + textRenderer.fontHeight + 2, UiStyle.PANEL_FILL);
+            drawBorder(context, x - 2, y - 2, textWidth + 4, textRenderer.fontHeight + 4, UiStyle.EDGE_DARK);
+            context.drawTextWithShadow(textRenderer, text, x, y, UiStyle.ACCENT_BLUE);
         }
     }
 
@@ -2616,15 +2865,17 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int widthTextWidth = textRenderer.getWidth(widthText);
         int widthX = bounds.x + (bounds.width - widthTextWidth) / 2;
         int widthY = bounds.y + bounds.height + 4;
-        context.fill(widthX - 2, widthY - 2, widthX + widthTextWidth + 2, widthY + textRenderer.fontHeight + 2, 0xCC111111);
-        context.drawTextWithShadow(textRenderer, widthText, widthX, widthY, 0xFFFFFFFF);
+        context.fill(widthX - 2, widthY - 2, widthX + widthTextWidth + 2, widthY + textRenderer.fontHeight + 2, UiStyle.PANEL_FILL);
+        drawBorder(context, widthX - 2, widthY - 2, widthTextWidth + 4, textRenderer.fontHeight + 4, UiStyle.EDGE_DARK);
+        context.drawTextWithShadow(textRenderer, widthText, widthX, widthY, UiStyle.ACCENT_GOLD);
 
         String heightText = "H: " + bounds.height;
         int heightTextWidth = textRenderer.getWidth(heightText);
         int heightX = bounds.x - heightTextWidth - 8;
         int heightY = bounds.y + (bounds.height - textRenderer.fontHeight) / 2;
-        context.fill(heightX - 2, heightY - 2, heightX + heightTextWidth + 2, heightY + textRenderer.fontHeight + 2, 0xCC111111);
-        context.drawTextWithShadow(textRenderer, heightText, heightX, heightY, 0xFFFFFFFF);
+        context.fill(heightX - 2, heightY - 2, heightX + heightTextWidth + 2, heightY + textRenderer.fontHeight + 2, UiStyle.PANEL_FILL);
+        drawBorder(context, heightX - 2, heightY - 2, heightTextWidth + 4, textRenderer.fontHeight + 4, UiStyle.EDGE_DARK);
+        context.drawTextWithShadow(textRenderer, heightText, heightX, heightY, UiStyle.ACCENT_GOLD);
     }
 
     private void resetGroupLayout(Group group, Template template) {
@@ -2664,7 +2915,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
     private Group hitTestGroup(double overlayX, double overlayY) {
         return groups.stream()
-            .filter(Group::isVisible)
+            .filter(group -> !group.keys.isEmpty())
             .sorted(Comparator.comparingInt(group -> -group.getBounds().area()))
             .filter(group -> group.contains(overlayX, overlayY))
             .findFirst()
@@ -2678,14 +2929,19 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private void removeSelected() {
+        deleteSelectedGroups();
+    }
+
+    private void deleteSelectedGroups() {
         if (selectedGroups.isEmpty()) {
             return;
         }
-        for (Group group : selectedGroups) {
-            group.setVisible(false);
-        }
+        List<OverlayConfig.KeyDefinition> keysToDelete = keysForSelectedGroups();
+        config.keys.removeAll(keysToDelete);
+        OverlayConfig.save(config);
         selectedGroups.clear();
         closeEditor();
+        rebuildGroups();
     }
 
     private List<Group> getHiddenGroups(String filterText) {
@@ -2714,15 +2970,91 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private void toggleSidebar() {
         sidebarOpen = !sidebarOpen;
         if (!sidebarOpen) {
-            settingsOpen = false;
+            closeSettingsPopup();
         }
     }
 
     private static void drawBorder(DrawContext context, int x, int y, int width, int height, int color) {
-        context.fill(x, y, x + width, y + 1, color);
-        context.fill(x, y + height - 1, x + width, y + height, color);
-        context.fill(x, y, x + 1, y + height, color);
-        context.fill(x + width - 1, y, x + width, y + height, color);
+        UiStyle.drawFrame(context, x, y, width, height, UiStyle.tint(color, 36), UiStyle.tint(color, -18));
+    }
+
+    private static int applyAlpha(int color, float alphaMultiplier) {
+        int alpha = (color >>> 24) & 0xFF;
+        int scaledAlpha = Math.round(alpha * Math.max(0.0f, Math.min(1.0f, alphaMultiplier)));
+        return (scaledAlpha << 24) | (color & 0x00FFFFFF);
+    }
+
+    private static float clamp01(float value) {
+        return Math.max(0.0f, Math.min(1.0f, value));
+    }
+
+    private static int toGray(int color, float amount) {
+        float t = Math.max(0.0f, Math.min(1.0f, amount));
+        int a = (color >>> 24) & 0xFF;
+        int r = (color >>> 16) & 0xFF;
+        int g = (color >>> 8) & 0xFF;
+        int b = color & 0xFF;
+        int gray = Math.round(r * 0.299f + g * 0.587f + b * 0.114f);
+        int nr = Math.round(r + (gray - r) * t);
+        int ng = Math.round(g + (gray - g) * t);
+        int nb = Math.round(b + (gray - b) * t);
+        return (a << 24) | (nr << 16) | (ng << 8) | nb;
+    }
+
+    private float getHoverProgress(Object key, boolean hovered) {
+        AnimatedValue hoverAnim = hoverAnimations.computeIfAbsent(key, ignored -> new AnimatedValue(0f, AnimationHelper::easeOutCubic));
+        hoverAnim.animateTo(hovered ? 1.0f : 0.0f, HOVER_ANIM_MS);
+        hoverAnim.tick();
+        return hoverAnim.getValue();
+    }
+
+    private float getToggleProgress(Object key, boolean enabled) {
+        AnimatedValue toggleAnim = toggleAnimations.computeIfAbsent(key, ignored -> new AnimatedValue(enabled ? 1.0f : 0.0f, AnimationHelper::easeOutCubic));
+        toggleAnim.animateTo(enabled ? 1.0f : 0.0f, TOGGLE_ANIM_MS);
+        toggleAnim.tick();
+        return toggleAnim.getValue();
+    }
+
+    private void drawScaledKeyText(DrawContext context, String text, int x, int y, int width, int height, int color) {
+        int textWidth = textRenderer.getWidth(text);
+        if (textWidth <= 0) {
+            return;
+        }
+        float scale = KEY_TEXT_BASE_SCALE * (Math.max(1.0f, height) / KEY_TEXT_BASE_HEIGHT);
+        if ("LMB".equals(text) || "RMB".equals(text)) {
+            scale *= MOUSE_LABEL_SCALE_MULTIPLIER;
+        }
+        scale = Math.max(0.70f, Math.min(3.0f, scale));
+
+        if (scale <= 0.999f) {
+            float centerX = x + width / 2.0f;
+            float centerY = y + height / 2.0f;
+            float drawX = centerX - (textWidth * scale) / 2.0f;
+            float drawY = centerY - (textRenderer.fontHeight * scale) / 2.0f;
+            MatrixStackCompat.push(context.getMatrices());
+            MatrixStackCompat.translate(context.getMatrices(), drawX, drawY);
+            MatrixStackCompat.scale(context.getMatrices(), scale, scale);
+            context.drawTextWithShadow(textRenderer, text, 0, 0, color);
+            MatrixStackCompat.pop(context.getMatrices());
+            return;
+        }
+
+        if (scale <= 1.001f) {
+            int textX = x + (width - textWidth) / 2;
+            int textY = y + (height - textRenderer.fontHeight) / 2;
+            context.drawTextWithShadow(textRenderer, text, textX, textY, color);
+            return;
+        }
+
+        float centerX = x + width / 2.0f;
+        float centerY = y + height / 2.0f;
+        float drawX = centerX - (textWidth * scale) / 2.0f;
+        float drawY = centerY - (textRenderer.fontHeight * scale) / 2.0f;
+        MatrixStackCompat.push(context.getMatrices());
+        MatrixStackCompat.translate(context.getMatrices(), drawX, drawY);
+        MatrixStackCompat.scale(context.getMatrices(), scale, scale);
+        context.drawTextWithShadow(textRenderer, text, 0, 0, color);
+        MatrixStackCompat.pop(context.getMatrices());
     }
 
     private static boolean isPointInside(double x, double y, double rectX, double rectY, double width, double height) {
@@ -2986,6 +3318,16 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         private ColorState(int color, boolean mixed) {
             this.color = color;
+            this.mixed = mixed;
+        }
+    }
+
+    private static final class PressedOpacityState {
+        private final float opacity;
+        private final boolean mixed;
+
+        private PressedOpacityState(float opacity, boolean mixed) {
+            this.opacity = opacity;
             this.mixed = mixed;
         }
     }
