@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "name": "Visual Keystrokes",
   "description": "Highly customizable keystroke and mouse overlay.",
-  "authors": ["ryduzz"],
+  "authors": ["soyboy"],
   "contact": {
     "sources": "https://github.com/yourname/visual-keystrokes"
   },
@@ -12,7 +12,7 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.ryduzz.visualkeystrokes.VisualKeystrokesClient"
+      "com.soyboy.visualkeystrokes.VisualKeystrokesClient"
     ]
   },
   "depends": {
