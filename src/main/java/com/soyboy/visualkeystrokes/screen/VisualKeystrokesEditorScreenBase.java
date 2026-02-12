@@ -6,6 +6,7 @@ import com.soyboy.visualkeystrokes.ui.animation.AnimationHelper;
 import com.soyboy.visualkeystrokes.ui.animation.PopupAnimationHandler;
 import com.soyboy.visualkeystrokes.ui.UiStyle;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import com.soyboy.visualkeystrokes.util.MatrixStackCompat;
 import com.soyboy.visualkeystrokes.util.RenderSnap;
 import net.minecraft.client.gui.DrawContext;
@@ -61,6 +62,16 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private static final int POPUP_SURFACE_UNDERLAY = 0xFF0D1016;
     private static final Method REFRESH_WIDGET_POSITIONS =
         findMethod(Screen.class, "refreshWidgetPositions");
+    private static final Method CREATE_NEW_ROOT_LAYER =
+        findMethod(DrawContext.class, "createNewRootLayer");
+    private static final Method DRAW_TEXT_SHADOW_STRING =
+        findMethod(DrawContext.class, "drawTextWithShadow", TextRenderer.class, String.class, int.class, int.class, int.class);
+    private static final Method DRAW_TEXT_SHADOW_TEXT =
+        findMethod(DrawContext.class, "drawTextWithShadow", TextRenderer.class, Text.class, int.class, int.class, int.class);
+    private static final Method DRAW_TEXT_STRING =
+        findMethod(DrawContext.class, "drawText", TextRenderer.class, String.class, int.class, int.class, int.class, boolean.class);
+    private static final Method DRAW_TEXT_TEXT =
+        findMethod(DrawContext.class, "drawText", TextRenderer.class, Text.class, int.class, int.class, int.class, boolean.class);
     private static Method legacyTextFieldOnClick;
     private static Method legacyTextFieldKeyPressed;
     private static Method legacyTextFieldCharTyped;
@@ -152,7 +163,6 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private final PopupAnimationHandler editorPopupAnimation = new PopupAnimationHandler();
     private final PopupAnimationHandler colorPickerPopupAnimation = new PopupAnimationHandler();
     private final PopupAnimationHandler settingsPopupAnimation = new PopupAnimationHandler();
-
     protected VisualKeystrokesEditorScreenBase(OverlayConfig config) {
         super(Text.literal("Visual Keystrokes"));
         this.config = config;
@@ -205,7 +215,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             colorHexField.setVisible(colorPickerPopupAnimation.isFullyVisible());
         }
 
-        UiStyle.drawBackdrop(context, width, height);
+        renderBackground(context, mouseX, mouseY, delta);
 
         drawHeader(context, mouseX, mouseY);
 
@@ -215,8 +225,13 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         drawSidebarToggle(context, mouseX, mouseY);
         drawSettingsButton(context, mouseX, mouseY);
         if (dragging) {
-            drawSelectedOverlay(context, mouseX, mouseY);
+            drawSelectedOverlay(context, mouseX, mouseY, true);
         }
+        renderBaseTextFields(context, mouseX, mouseY, delta);
+        if (isPopupObscuringWorkspace()) {
+            startNewRootLayer(context);
+        }
+
         if (settingsPopupAnimation.isVisible()) {
             drawSettingsPopup(context, mouseX, mouseY);
         }
@@ -224,18 +239,19 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             drawEditorPopup(context, mouseX, mouseY);
         }
         if (colorPickerPopupAnimation.isVisible()) {
-            drawColorPicker(context, mouseX, mouseY);
+            drawColorPicker(context, mouseX, mouseY, delta);
         }
         if (infoPopupAnimation.isVisible()) {
             drawInfoPopup(context, mouseX, mouseY);
         }
-
-        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
     public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Avoid the default blur pass in Screen#renderBackground.
+        if (client != null && client.world == null) {
+            renderPanoramaBackground(context, delta);
+        }
+        renderDarkening(context);
     }
 
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -588,7 +604,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         MatrixStackCompat.pop(context.getMatrices());
     }
 
-    private void drawSelectedOverlay(DrawContext context, int mouseX, int mouseY) {
+    private void drawSelectedOverlay(DrawContext context, int mouseX, int mouseY, boolean drawElementText) {
         if (selectedGroups.isEmpty()) {
             return;
         }
@@ -618,7 +634,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
                     textColor = applyAlpha(toGray(textColor, 1.0f), 0.5f);
                 }
                 UiStyle.drawKeyCap(context, x, y, width, height, background, border, false);
-                drawScaledKeyText(context, key.label, x, y, width, height, textColor);
+                if (drawElementText) {
+                    drawScaledKeyText(context, key.label, x, y, width, height, textColor);
+                }
             }
         }
 
@@ -642,12 +660,14 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         if ((dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.guidesEnabled) {
             drawGuides(context);
         }
-        if ((dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.distanceLabelsEnabled) {
+        if (drawElementText && (dragMode == DragMode.MOVE || dragMode == DragMode.RESIZE) && config.distanceLabelsEnabled) {
             drawDistanceLabels(context);
         }
         if (dragMode == DragMode.RESIZE) {
             if (combined != null) {
-                drawResizeSizeLabels(context, combined);
+                if (drawElementText) {
+                    drawResizeSizeLabels(context, combined);
+                }
             }
         }
 
@@ -734,7 +754,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             if (active) {
                 context.fill(entryX + 2, entryY + 2, entryX + 4, entryY + entryHeight - 2, UiStyle.ACCENT_GOLD);
             }
-            context.drawTextWithShadow(textRenderer, template.displayName, entryX + 8, entryY + 7, UiStyle.TEXT_PRIMARY);
+            drawTextShadow(context, template.displayName, entryX + 8, entryY + 7, UiStyle.TEXT_PRIMARY);
             y += entryHeight + 6;
         }
         if (listHeight > 0) {
@@ -817,7 +837,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private void drawHeader(DrawContext context, int mouseX, int mouseY) {
-        Text title = Text.literal("Visual Keystrokes");
+        String title = "Visual Keystrokes";
         headerWidth = textRenderer.getWidth(title);
         headerHeight = textRenderer.fontHeight;
         headerX = (width - headerWidth) / 2;
@@ -828,7 +848,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int bg = AnimationHelper.lerpColor(0xA010141B, UiStyle.tint(0xA010141B, 16), headerHover);
         context.fill(headerX - 8, headerY - 4, headerX + headerWidth + 8, headerY + headerHeight + 5, bg);
         drawBorder(context, headerX - 8, headerY - 4, headerWidth + 16, headerHeight + 9, UiStyle.EDGE_DARK);
-        context.drawTextWithShadow(textRenderer, title, headerX, headerY, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, title, headerX, headerY, UiStyle.TEXT_PRIMARY);
     }
 
     private boolean handleHeaderClick(double mouseX, double mouseY) {
@@ -869,7 +889,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         textY += 20;
         drawCenteredText(context, "Fabric Loader: 0.18.3", centerX, textY);
 
-        Text closeLabel = Text.literal("Close");
+        String closeLabel = "Close";
         int buttonWidth = 140;
         int buttonHeight = 24;
         infoCloseWidth = buttonWidth;
@@ -941,12 +961,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
     private void drawCenteredText(DrawContext context, String text, int centerX, int y) {
         int textWidth = textRenderer.getWidth(text);
-        context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, UiStyle.TEXT_PRIMARY);
-    }
-
-    private void drawCenteredText(DrawContext context, Text text, int centerX, int y) {
-        int textWidth = textRenderer.getWidth(text);
-        context.drawTextWithShadow(textRenderer, text, centerX - textWidth / 2, y, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, text, centerX - textWidth / 2, y, UiStyle.TEXT_PRIMARY);
     }
 
     protected boolean handleSearchFieldClickLegacy(double mouseX, double mouseY, int button) {
@@ -1122,8 +1137,59 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
     }
 
+    private boolean isPopupObscuringWorkspace() {
+        return settingsPopupAnimation.isVisible()
+            || editorPopupAnimation.isVisible()
+            || colorPickerPopupAnimation.isVisible()
+            || infoPopupAnimation.isVisible();
+    }
+
+    private static void startNewRootLayer(DrawContext context) {
+        if (context == null || CREATE_NEW_ROOT_LAYER == null) {
+            return;
+        }
+        try {
+            CREATE_NEW_ROOT_LAYER.invoke(context);
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+        }
+    }
+
+    private void drawTextShadow(DrawContext context, Object value, int x, int y, int color) {
+        Text text = value instanceof Text existing ? existing : Text.of(value == null ? "" : value.toString());
+        if (invokeDrawTextMethod(context, DRAW_TEXT_SHADOW_TEXT, text, x, y, color, true)) {
+            return;
+        }
+        String stringValue = text.getString();
+        if (invokeDrawTextMethod(context, DRAW_TEXT_SHADOW_STRING, stringValue, x, y, color, true)) {
+            return;
+        }
+        if (invokeDrawTextMethod(context, DRAW_TEXT_TEXT, text, x, y, color, true)) {
+            return;
+        }
+        if (invokeDrawTextMethod(context, DRAW_TEXT_STRING, stringValue, x, y, color, true)) {
+            return;
+        }
+        context.drawText(textRenderer, stringValue, x, y, color, true);
+    }
+
+    private boolean invokeDrawTextMethod(DrawContext context, Method method, Object textValue, int x, int y, int color, boolean shadow) {
+        if (method == null) {
+            return false;
+        }
+        try {
+            if (method.getParameterCount() == 5) {
+                method.invoke(context, textRenderer, textValue, x, y, color);
+            } else {
+                method.invoke(context, textRenderer, textValue, x, y, color, shadow);
+            }
+            return true;
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
+    }
+
     private void drawResetButton(DrawContext context, int sidebarX, int sidebarWidth, int mouseX, int mouseY) {
-        Text label = Text.literal("Reset");
+        String label = "Reset";
         int textWidth = textRenderer.getWidth(label);
         int buttonHeight = SETTINGS_BUTTON_SIZE;
         int buttonWidth = Math.max(46, textWidth + RESET_PADDING_X * 2);
@@ -1146,7 +1212,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         int textX = resetX + (resetWidth - textWidth) / 2;
         int textY = resetY + (resetHeight - textRenderer.fontHeight) / 2;
-        context.drawTextWithShadow(textRenderer, label, textX, textY, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, label, textX, textY, UiStyle.TEXT_PRIMARY);
     }
 
     private boolean handleResetClick(double mouseX, double mouseY) {
@@ -1205,7 +1271,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private void drawSettingsRow(DrawContext context, String label, boolean enabled, int x, int y) {
-        context.drawTextWithShadow(textRenderer, label, x, y + 4, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, label, x, y + 4, UiStyle.TEXT_PRIMARY);
         int buttonWidth = 50;
         int buttonHeight = 16;
         int buttonX = settingsPanelX + SETTINGS_PANEL_WIDTH - 12 - buttonWidth;
@@ -1215,7 +1281,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
     private void drawThresholdRow(DrawContext context, int x, int y) {
         String label = "Snap Threshold";
-        context.drawTextWithShadow(textRenderer, label, x, y + 4, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, label, x, y + 4, UiStyle.TEXT_PRIMARY);
         int value = Math.max(1, config.snapThreshold);
         String valueText = Integer.toString(value);
         int buttonSize = 18;
@@ -1236,7 +1302,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         int valueWidth = textRenderer.getWidth(valueText);
         int valueX = minusX - gap - valueWidth;
-        context.drawTextWithShadow(textRenderer, valueText, valueX, buttonY + 5, UiStyle.ACCENT_GOLD);
+        drawTextShadow(context, valueText, valueX, buttonY + 5, UiStyle.ACCENT_GOLD);
     }
 
     private boolean handleSettingsPopupClick(double mouseX, double mouseY) {
@@ -1323,7 +1389,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         String title = selectedGroups.size() == 1
             ? "Edit " + primarySelected().displayName
             : "Edit " + selectedGroups.size() + " Elements";
-        context.drawTextWithShadow(textRenderer, title, titleX, titleY, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, title, titleX, titleY, UiStyle.TEXT_PRIMARY);
 
         editorCloseWidth = 14;
         editorCloseHeight = 14;
@@ -1337,7 +1403,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         );
         context.fill(editorCloseX, editorCloseY, editorCloseX + editorCloseWidth, editorCloseY + editorCloseHeight, closeBg);
         drawBorder(context, editorCloseX, editorCloseY, editorCloseWidth, editorCloseHeight, UiStyle.EDGE_DARK);
-        context.drawTextWithShadow(textRenderer, "X", editorCloseX + 4, editorCloseY + 3, UiStyle.ACCENT_RED);
+        drawTextShadow(context, "X", editorCloseX + 4, editorCloseY + 3, UiStyle.ACCENT_RED);
 
         int rowStartY = titleY + 20;
         int rowHeight = 24;
@@ -1352,7 +1418,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
         for (int i = 0; i < targets.length; i++) {
             int rowY = rowStartY + i * rowHeight;
-            context.drawTextWithShadow(textRenderer, labels[i], titleX, rowY + 4, UiStyle.TEXT_PRIMARY);
+            drawTextShadow(context, labels[i], titleX, rowY + 4, UiStyle.TEXT_PRIMARY);
 
             ColorState state = selectionColorState(targets[i]);
             int boxX = editorPanelX + editorPanelWidth - 12 - boxSize;
@@ -1362,13 +1428,13 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             if (state.mixed) {
                 String mixed = "Mixed";
                 int mixedWidth = textRenderer.getWidth(mixed);
-                context.drawTextWithShadow(textRenderer, mixed, boxX - mixedWidth - 6, rowY + 4, UiStyle.TEXT_MUTED);
+                drawTextShadow(context, mixed, boxX - mixedWidth - 6, rowY + 4, UiStyle.TEXT_MUTED);
             }
         }
 
         int pressedOpacityY = rowStartY + targets.length * rowHeight;
         PressedOpacityState pressedOpacityState = selectionPressedOpacityState();
-        context.drawTextWithShadow(textRenderer, "Press Opacity", titleX, pressedOpacityY + 4, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, "Press Opacity", titleX, pressedOpacityY + 4, UiStyle.TEXT_PRIMARY);
         int opacityButtonSize = 18;
         int opacityGap = 4;
         int opacityRight = editorPanelX + editorPanelWidth - 12;
@@ -1384,11 +1450,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         String opacityText = Math.round(pressedOpacityState.opacity * 100.0f) + "%";
         int opacityTextWidth = textRenderer.getWidth(opacityText);
         int opacityTextX = opacityMinusX - opacityGap - opacityTextWidth;
-        context.drawTextWithShadow(textRenderer, opacityText, opacityTextX, pressedOpacityY + 5, UiStyle.ACCENT_GOLD);
+        drawTextShadow(context, opacityText, opacityTextX, pressedOpacityY + 5, UiStyle.ACCENT_GOLD);
         if (pressedOpacityState.mixed) {
             String mixed = "Mixed";
             int mixedWidth = textRenderer.getWidth(mixed);
-            context.drawTextWithShadow(textRenderer, mixed, opacityTextX - mixedWidth - 6, pressedOpacityY + 5, UiStyle.TEXT_MUTED);
+            drawTextShadow(context, mixed, opacityTextX - mixedWidth - 6, pressedOpacityY + 5, UiStyle.TEXT_MUTED);
         }
 
         int controlsY = pressedOpacityY + rowHeight + 6;
@@ -1409,14 +1475,14 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         context.fill(editorVisibilityX, editorVisibilityY, editorVisibilityX + editorVisibilityWidth, editorVisibilityY + editorVisibilityHeight, visibilityBg);
         drawBorder(context, editorVisibilityX, editorVisibilityY, editorVisibilityWidth, editorVisibilityHeight, UiStyle.EDGE_DARK);
         int visibilityTextWidth = textRenderer.getWidth(visibilityLabel);
-        context.drawTextWithShadow(
-            textRenderer,
+        drawTextShadow(
+            context,
             visibilityLabel,
             editorVisibilityX + (editorVisibilityWidth - visibilityTextWidth) / 2,
             editorVisibilityY + 5,
             UiStyle.TEXT_PRIMARY
         );
-        context.drawTextWithShadow(textRenderer, "Visibility", titleX, controlsY + 4, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, "Visibility", titleX, controlsY + 4, UiStyle.TEXT_PRIMARY);
 
         editorResetWidth = 110;
         editorResetHeight = buttonHeight;
@@ -1432,14 +1498,14 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         drawBorder(context, editorResetX, editorResetY, editorResetWidth, editorResetHeight, UiStyle.EDGE_DARK);
         String resetLabel = "Reset Colors";
         int resetTextWidth = textRenderer.getWidth(resetLabel);
-        context.drawTextWithShadow(
-            textRenderer,
+        drawTextShadow(
+            context,
             resetLabel,
             editorResetX + (editorResetWidth - resetTextWidth) / 2,
             editorResetY + 5,
             UiStyle.TEXT_PRIMARY
         );
-        context.drawTextWithShadow(textRenderer, "Overrides", titleX, editorResetY + 4, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, "Overrides", titleX, editorResetY + 4, UiStyle.TEXT_PRIMARY);
         MatrixStackCompat.pop(context.getMatrices());
     }
 
@@ -1511,7 +1577,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         return true;
     }
 
-    private void drawColorPicker(DrawContext context, int mouseX, int mouseY) {
+    private void drawColorPicker(DrawContext context, int mouseX, int mouseY, float delta) {
         int panelWidth = COLOR_PICKER_PADDING * 2 + COLOR_PICKER_RADIUS * 2 + COLOR_PICKER_SLIDER_WIDTH + 12;
         int panelHeight = COLOR_PICKER_PADDING * 3 + COLOR_PICKER_RADIUS * 2 + COLOR_PICKER_FIELD_HEIGHT + 18;
         int panelX = editorPanelX + editorPanelWidth + 12;
@@ -1562,8 +1628,17 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             colorHexField.setWidth(fieldWidth);
             colorHexField.setVisible(colorPickerPopupAnimation.isFullyVisible());
         }
-        context.drawTextWithShadow(textRenderer, "Hex", fieldX, fieldY - 10, UiStyle.TEXT_PRIMARY);
+        drawTextShadow(context, "Hex", fieldX, fieldY - 10, UiStyle.TEXT_PRIMARY);
         MatrixStackCompat.pop(context.getMatrices());
+        if (colorHexField != null && colorHexField.isVisible()) {
+            colorHexField.render(context, mouseX, mouseY, delta);
+        }
+    }
+
+    private void renderBaseTextFields(DrawContext context, int mouseX, int mouseY, float delta) {
+        if (searchField != null && searchField.isVisible()) {
+            searchField.render(context, mouseX, mouseY, delta);
+        }
     }
 
     private boolean handleColorPickerClick(double mouseX, double mouseY) {
@@ -2863,7 +2938,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             int y = label.y - textRenderer.fontHeight / 2;
             context.fill(x - 2, y - 2, x + textWidth + 2, y + textRenderer.fontHeight + 2, UiStyle.PANEL_FILL);
             drawBorder(context, x - 2, y - 2, textWidth + 4, textRenderer.fontHeight + 4, UiStyle.EDGE_DARK);
-            context.drawTextWithShadow(textRenderer, text, x, y, UiStyle.ACCENT_BLUE);
+            drawTextShadow(context, text, x, y, UiStyle.ACCENT_BLUE);
         }
     }
 
@@ -2874,7 +2949,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int widthY = bounds.y + bounds.height + 4;
         context.fill(widthX - 2, widthY - 2, widthX + widthTextWidth + 2, widthY + textRenderer.fontHeight + 2, UiStyle.PANEL_FILL);
         drawBorder(context, widthX - 2, widthY - 2, widthTextWidth + 4, textRenderer.fontHeight + 4, UiStyle.EDGE_DARK);
-        context.drawTextWithShadow(textRenderer, widthText, widthX, widthY, UiStyle.ACCENT_GOLD);
+        drawTextShadow(context, widthText, widthX, widthY, UiStyle.ACCENT_GOLD);
 
         String heightText = "H: " + bounds.height;
         int heightTextWidth = textRenderer.getWidth(heightText);
@@ -2882,7 +2957,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int heightY = bounds.y + (bounds.height - textRenderer.fontHeight) / 2;
         context.fill(heightX - 2, heightY - 2, heightX + heightTextWidth + 2, heightY + textRenderer.fontHeight + 2, UiStyle.PANEL_FILL);
         drawBorder(context, heightX - 2, heightY - 2, heightTextWidth + 4, textRenderer.fontHeight + 4, UiStyle.EDGE_DARK);
-        context.drawTextWithShadow(textRenderer, heightText, heightX, heightY, UiStyle.ACCENT_GOLD);
+        drawTextShadow(context, heightText, heightX, heightY, UiStyle.ACCENT_GOLD);
     }
 
     private void resetGroupLayout(Group group, Template template) {
@@ -3033,35 +3108,23 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
         scale = Math.max(0.70f, Math.min(3.0f, scale));
 
-        if (scale <= 0.999f) {
-            float centerX = x + width / 2.0f;
-            float centerY = y + height / 2.0f;
-            float drawX = centerX - (textWidth * scale) / 2.0f;
-            float drawY = centerY - (textRenderer.fontHeight * scale) / 2.0f;
-            MatrixStackCompat.push(context.getMatrices());
-            MatrixStackCompat.translate(context.getMatrices(), drawX, drawY);
-            MatrixStackCompat.scale(context.getMatrices(), scale, scale);
-            context.drawTextWithShadow(textRenderer, text, 0, 0, color);
-            MatrixStackCompat.pop(context.getMatrices());
-            return;
-        }
-
-        if (scale <= 1.001f) {
-            int textX = x + (width - textWidth) / 2;
-            int textY = y + (height - textRenderer.fontHeight) / 2;
-            context.drawTextWithShadow(textRenderer, text, textX, textY, color);
-            return;
-        }
-
         float centerX = x + width / 2.0f;
         float centerY = y + height / 2.0f;
         float drawX = centerX - (textWidth * scale) / 2.0f;
         float drawY = centerY - (textRenderer.fontHeight * scale) / 2.0f;
-        MatrixStackCompat.push(context.getMatrices());
-        MatrixStackCompat.translate(context.getMatrices(), drawX, drawY);
-        MatrixStackCompat.scale(context.getMatrices(), scale, scale);
-        context.drawTextWithShadow(textRenderer, text, 0, 0, color);
-        MatrixStackCompat.pop(context.getMatrices());
+
+        if (scale <= 0.999f || scale > 1.001f) {
+            MatrixStackCompat.push(context.getMatrices());
+            MatrixStackCompat.translate(context.getMatrices(), drawX, drawY);
+            MatrixStackCompat.scale(context.getMatrices(), scale, scale);
+            drawTextShadow(context, text, 0, 0, color);
+            MatrixStackCompat.pop(context.getMatrices());
+            return;
+        }
+
+        int textX = x + (width - textWidth) / 2;
+        int textY = y + (height - textRenderer.fontHeight) / 2;
+        drawTextShadow(context, text, textX, textY, color);
     }
 
     private static boolean isPointInside(double x, double y, double rectX, double rectY, double width, double height) {

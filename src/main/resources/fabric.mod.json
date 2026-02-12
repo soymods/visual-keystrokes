@@ -4,7 +4,7 @@
   "version": "${version}",
   "name": "Visual Keystrokes",
   "description": "Highly customizable keystroke and mouse overlay.",
-  "icon": "assets/visualkeystrokes/icon.png",
+  "icon": "assets/visualkeystrokes/logo.png",
   "authors": ["soyboy"],
   "contact": {
     "sources": "https://github.com/yourname/visual-keystrokes"

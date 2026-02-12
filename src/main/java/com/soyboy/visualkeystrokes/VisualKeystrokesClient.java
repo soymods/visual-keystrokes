@@ -5,6 +5,7 @@ import com.soyboy.visualkeystrokes.input.InputTracker;
 import com.soyboy.visualkeystrokes.render.KeystrokeOverlayRenderer;
 import com.soyboy.visualkeystrokes.screen.VisualKeystrokesEditor;
 import com.soyboy.visualkeystrokes.screen.VisualKeystrokesEditorScreens;
+import com.soyboy.visualkeystrokes.screen.VisualKeystrokesMainMenuIntegration;
 import com.soyboy.visualkeystrokes.util.KeyBindingCompat;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -51,6 +52,8 @@ public final class VisualKeystrokesClient implements ClientModInitializer {
                 OverlayConfig.save(config);
             }
         });
+
+        VisualKeystrokesMainMenuIntegration.register(() -> config);
 
         ScreenEvents.AFTER_INIT.register((screenClient, screen, scaledWidth, scaledHeight) -> {
             if (!(screen instanceof GameMenuScreen)) {

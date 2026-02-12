@@ -1,4 +1,5 @@
 {
   "key.visualkeystrokes.toggle": "Toggle Keystrokes Overlay",
-  "key.category.visualkeystrokes.general": "Visual Keystrokes"
+  "key.category.visualkeystrokes.general": "Visual Keystrokes",
+  "gui.visualkeystrokes.open_editor": "Open Visual Keystrokes Editor"
 }
