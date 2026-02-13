@@ -1,6 +1,7 @@
 package com.soyboy.visualkeystrokes.util;
 
 import org.joml.Matrix3x2fStack;
+import org.joml.Vector2f;
 
 public final class MatrixStackCompat {
     private MatrixStackCompat() {
@@ -20,5 +21,14 @@ public final class MatrixStackCompat {
 
     public static void scale(Matrix3x2fStack stack, float x, float y) {
         stack.scale(x, y);
+    }
+
+    public static void liftToTopTextLayer(Matrix3x2fStack stack) {
+    }
+
+    public static float[] transformPoint(Matrix3x2fStack stack, float x, float y) {
+        Vector2f transformed = new Vector2f();
+        stack.transformPosition(x, y, transformed);
+        return new float[] { transformed.x, transformed.y };
     }
 }

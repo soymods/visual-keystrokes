@@ -163,6 +163,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     private final PopupAnimationHandler editorPopupAnimation = new PopupAnimationHandler();
     private final PopupAnimationHandler colorPickerPopupAnimation = new PopupAnimationHandler();
     private final PopupAnimationHandler settingsPopupAnimation = new PopupAnimationHandler();
+    private boolean drawingPopupText;
+    private final List<Rect> legacyTextOccluders = new ArrayList<>();
     protected VisualKeystrokesEditorScreenBase(OverlayConfig config) {
         super(Text.literal("Visual Keystrokes"));
         this.config = config;
@@ -214,6 +216,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         if (colorHexField != null) {
             colorHexField.setVisible(colorPickerPopupAnimation.isFullyVisible());
         }
+        boolean popupObscuringWorkspace = isPopupObscuringWorkspace();
+        drawingPopupText = false;
+        updateLegacyTextOccluders();
 
         renderBackground(context, mouseX, mouseY, delta);
 
@@ -228,21 +233,29 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             drawSelectedOverlay(context, mouseX, mouseY, true);
         }
         renderBaseTextFields(context, mouseX, mouseY, delta);
-        if (isPopupObscuringWorkspace()) {
+        if (popupObscuringWorkspace) {
             startNewRootLayer(context);
         }
 
         if (settingsPopupAnimation.isVisible()) {
+            drawingPopupText = true;
             drawSettingsPopup(context, mouseX, mouseY);
+            drawingPopupText = false;
         }
         if (editorPopupAnimation.isVisible()) {
+            drawingPopupText = true;
             drawEditorPopup(context, mouseX, mouseY);
+            drawingPopupText = false;
         }
         if (colorPickerPopupAnimation.isVisible()) {
+            drawingPopupText = true;
             drawColorPicker(context, mouseX, mouseY, delta);
+            drawingPopupText = false;
         }
         if (infoPopupAnimation.isVisible()) {
+            drawingPopupText = true;
             drawInfoPopup(context, mouseX, mouseY);
+            drawingPopupText = false;
         }
     }
 
@@ -689,15 +702,14 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int sidebarX = width - sidebarWidth;
 
         UiStyle.drawPanel(context, sidebarX, 0, sidebarWidth, height);
-        UiStyle.drawSectionHeader(
-            context,
-            textRenderer,
-            "Elements",
-            sidebarX + 6,
-            HEADER_Y - 2,
-            sidebarWidth - 12,
-            UiStyle.ACCENT_GOLD
-        );
+        int sectionX = sidebarX + 6;
+        int sectionY = HEADER_Y - 2;
+        int sectionWidth = sidebarWidth - 12;
+        int sectionHeight = textRenderer.fontHeight + 6;
+        context.fill(sectionX, sectionY, sectionX + sectionWidth, sectionY + sectionHeight, 0xFF10141B);
+        drawBorder(context, sectionX, sectionY, sectionWidth, sectionHeight, UiStyle.EDGE_DARK);
+        context.fill(sectionX + 2, sectionY + 2, sectionX + 6, sectionY + sectionHeight - 2, UiStyle.ACCENT_GOLD);
+        drawTextShadow(context, "Elements", sectionX + 10, sectionY + 3, UiStyle.TEXT_PRIMARY);
         drawResetButton(context, sidebarX, sidebarWidth, mouseX, mouseY);
 
         int searchX = sidebarX + SIDEBAR_PADDING;
@@ -1155,6 +1167,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private void drawTextShadow(DrawContext context, Object value, int x, int y, int color) {
+        if (shouldHideLegacyBaseText(context, value, x, y)) {
+            return;
+        }
         Text text = value instanceof Text existing ? existing : Text.of(value == null ? "" : value.toString());
         if (invokeDrawTextMethod(context, DRAW_TEXT_SHADOW_TEXT, text, x, y, color, true)) {
             return;
@@ -1170,6 +1185,132 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return;
         }
         context.drawText(textRenderer, stringValue, x, y, color, true);
+    }
+
+    private boolean shouldHideLegacyBaseText(DrawContext context, Object value, int x, int y) {
+        if (drawingPopupText || CREATE_NEW_ROOT_LAYER != null) {
+            return false;
+        }
+        if (legacyTextOccluders.isEmpty()) {
+            return false;
+        }
+
+        String text = value instanceof Text existing ? existing.getString() : String.valueOf(value == null ? "" : value);
+        int textWidth = textRenderer.getWidth(text);
+        float[] topLeft = MatrixStackCompat.transformPoint(context.getMatrices(), x, y);
+        float[] topRight = MatrixStackCompat.transformPoint(context.getMatrices(), x + textWidth, y);
+        float[] bottomLeft = MatrixStackCompat.transformPoint(context.getMatrices(), x, y + textRenderer.fontHeight);
+        float[] bottomRight = MatrixStackCompat.transformPoint(context.getMatrices(), x + textWidth, y + textRenderer.fontHeight);
+        int left = (int) Math.floor(Math.min(Math.min(topLeft[0], topRight[0]), Math.min(bottomLeft[0], bottomRight[0])));
+        int top = (int) Math.floor(Math.min(Math.min(topLeft[1], topRight[1]), Math.min(bottomLeft[1], bottomRight[1])));
+        int right = (int) Math.ceil(Math.max(Math.max(topLeft[0], topRight[0]), Math.max(bottomLeft[0], bottomRight[0])));
+        int bottom = (int) Math.ceil(Math.max(Math.max(topLeft[1], topRight[1]), Math.max(bottomLeft[1], bottomRight[1])));
+
+        return shouldHideLegacyRect(left, top, right, bottom);
+    }
+
+    private boolean shouldHideLegacyRect(int left, int top, int right, int bottom) {
+        if (CREATE_NEW_ROOT_LAYER != null || legacyTextOccluders.isEmpty()) {
+            return false;
+        }
+        for (Rect rect : legacyTextOccluders) {
+            if (intersects(left, top, right, bottom, rect.left, rect.top, rect.right, rect.bottom)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void updateLegacyTextOccluders() {
+        legacyTextOccluders.clear();
+        if (CREATE_NEW_ROOT_LAYER != null) {
+            return;
+        }
+
+        if (settingsPopupAnimation.isVisible()) {
+            int sidebarWidth = (int) (SIDEBAR_WIDTH * sidebarProgress);
+            int sidebarX = width - sidebarWidth;
+            int buttonX = sidebarX + sidebarWidth - SETTINGS_BUTTON_SIZE - SIDEBAR_PADDING;
+            int buttonY = height - SETTINGS_BUTTON_SIZE - SIDEBAR_PADDING;
+            int panelX = buttonX - SETTINGS_PANEL_WIDTH + SETTINGS_BUTTON_SIZE;
+            int panelY = buttonY - SETTINGS_PANEL_HEIGHT - 8;
+            legacyTextOccluders.add(scaleRectBottomRight(panelX, panelY, SETTINGS_PANEL_WIDTH, SETTINGS_PANEL_HEIGHT, settingsPopupAnimation.getPopupProgress()));
+        }
+
+        if (infoPopupAnimation.isVisible()) {
+            int panelWidth = Math.min(460, width - 80);
+            int panelHeight = 230;
+            int panelX = (width - panelWidth) / 2;
+            int panelY = (height - panelHeight) / 2;
+            legacyTextOccluders.add(scaleRectCentered(panelX, panelY, panelWidth, panelHeight, infoPopupAnimation.getPopupProgress()));
+        }
+
+        if (editorPopupAnimation.isVisible()) {
+            int panelWidth = Math.min(EDITOR_PANEL_WIDTH, width - 60);
+            int panelHeight = Math.min(EDITOR_PANEL_HEIGHT, height - 60);
+            int panelX = (width - panelWidth) / 2;
+            int panelY = Math.max(20, (height - panelHeight) / 2);
+            legacyTextOccluders.add(scaleRectCentered(panelX, panelY, panelWidth, panelHeight, editorPopupAnimation.getPopupProgress()));
+        }
+
+        if (colorPickerPopupAnimation.isVisible()) {
+            int editorWidth = Math.min(EDITOR_PANEL_WIDTH, width - 60);
+            int editorHeight = Math.min(EDITOR_PANEL_HEIGHT, height - 60);
+            int editorX = (width - editorWidth) / 2;
+            int editorY = Math.max(20, (height - editorHeight) / 2);
+            int panelWidth = COLOR_PICKER_PADDING * 2 + COLOR_PICKER_RADIUS * 2 + COLOR_PICKER_SLIDER_WIDTH + 12;
+            int panelHeight = COLOR_PICKER_PADDING * 3 + COLOR_PICKER_RADIUS * 2 + COLOR_PICKER_FIELD_HEIGHT + 18;
+            int panelX = editorX + editorWidth + 12;
+            if (panelX + panelWidth > width - 10) {
+                panelX = editorX - panelWidth - 12;
+            }
+            if (panelX < 10) {
+                panelX = (width - panelWidth) / 2;
+            }
+            panelX = Math.max(10, Math.min(panelX, width - panelWidth - 10));
+            int panelY = editorY + 10;
+            if (panelY + panelHeight > height - 10) {
+                panelY = height - panelHeight - 10;
+            }
+            panelY = Math.max(10, panelY);
+            legacyTextOccluders.add(scaleRectCentered(panelX, panelY, panelWidth, panelHeight, colorPickerPopupAnimation.getPopupProgress()));
+        }
+    }
+
+    private Rect scaleRectCentered(int x, int y, int width, int height, float progress) {
+        float scale = Math.max(0.001f, progress);
+        double cx = x + width / 2.0;
+        double cy = y + height / 2.0;
+        double halfW = width * scale / 2.0;
+        double halfH = height * scale / 2.0;
+        return new Rect((int) Math.floor(cx - halfW), (int) Math.floor(cy - halfH), (int) Math.ceil(cx + halfW), (int) Math.ceil(cy + halfH));
+    }
+
+    private Rect scaleRectBottomRight(int x, int y, int width, int height, float progress) {
+        float scale = Math.max(0.001f, progress);
+        int right = x + width;
+        int bottom = y + height;
+        int scaledW = Math.max(1, (int) Math.ceil(width * scale));
+        int scaledH = Math.max(1, (int) Math.ceil(height * scale));
+        return new Rect(right - scaledW, bottom - scaledH, right, bottom);
+    }
+
+    private static boolean intersects(int aLeft, int aTop, int aRight, int aBottom, int bLeft, int bTop, int bRight, int bBottom) {
+        return aLeft < bRight && aRight > bLeft && aTop < bBottom && aBottom > bTop;
+    }
+
+    private static final class Rect {
+        private final int left;
+        private final int top;
+        private final int right;
+        private final int bottom;
+
+        private Rect(int left, int top, int right, int bottom) {
+            this.left = left;
+            this.top = top;
+            this.right = right;
+            this.bottom = bottom;
+        }
     }
 
     private boolean invokeDrawTextMethod(DrawContext context, Method method, Object textValue, int x, int y, int color, boolean shadow) {
@@ -1636,7 +1777,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private void renderBaseTextFields(DrawContext context, int mouseX, int mouseY, float delta) {
-        if (searchField != null && searchField.isVisible()) {
+        if (searchField != null && searchField.isVisible()
+            && !shouldHideLegacyRect(searchField.getX(), searchField.getY(), searchField.getX() + searchField.getWidth(), searchField.getY() + searchField.getHeight())) {
             searchField.render(context, mouseX, mouseY, delta);
         }
     }
