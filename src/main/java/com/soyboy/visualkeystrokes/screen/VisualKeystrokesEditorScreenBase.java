@@ -18,10 +18,12 @@ import org.lwjgl.glfw.GLFW;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public abstract class VisualKeystrokesEditorScreenBase extends Screen implements VisualKeystrokesEditor {
     private static final int SIDEBAR_WIDTH = 160;
@@ -503,6 +505,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
                 return true;
             }
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                closeColorPicker();
                 colorHexField.setFocused(false);
                 setFocused(null);
                 return true;
@@ -527,11 +530,34 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
 
     protected boolean handleKeyPressedCommon(int keyCode) {
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            if (closeTopMostPopup()) {
+                return true;
+            }
             close();
             return true;
         }
         if (keyCode == GLFW.GLFW_KEY_DELETE || keyCode == GLFW.GLFW_KEY_BACKSPACE) {
             removeSelected();
+            return true;
+        }
+        return false;
+    }
+
+    private boolean closeTopMostPopup() {
+        if (infoPopupAnimation.isVisible() || infoOpen) {
+            closeInfoPopup();
+            return true;
+        }
+        if (colorPickerPopupAnimation.isVisible() || colorPickerOpen) {
+            closeColorPicker();
+            return true;
+        }
+        if (editorPopupAnimation.isVisible() || editorOpen) {
+            closeEditor();
+            return true;
+        }
+        if (settingsPopupAnimation.isVisible() || settingsOpen) {
+            closeSettingsPopup();
             return true;
         }
         return false;
@@ -897,7 +923,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         textY += 20;
         drawCenteredText(context, "Running Minecraft: fabric-loader-0.18.3-1.21.11", centerX, textY);
         textY += 20;
-        drawCenteredText(context, "Current Build: 1.0.1+mc1.21.11", centerX, textY);
+        drawCenteredText(context, "Current Build: 1.0.2+mc1.21.11", centerX, textY);
         textY += 20;
         drawCenteredText(context, "Fabric Loader: 0.18.3", centerX, textY);
 
@@ -1246,18 +1272,18 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
 
         if (editorPopupAnimation.isVisible()) {
-            int panelWidth = Math.min(EDITOR_PANEL_WIDTH, width - 60);
-            int panelHeight = Math.min(EDITOR_PANEL_HEIGHT, height - 60);
+            int panelWidth = Math.min(EDITOR_PANEL_WIDTH, Math.max(180, width - 20));
+            int panelHeight = Math.min(EDITOR_PANEL_HEIGHT, Math.max(140, height - 6));
             int panelX = (width - panelWidth) / 2;
-            int panelY = Math.max(20, (height - panelHeight) / 2);
+            int panelY = Math.max(3, (height - panelHeight) / 2);
             legacyTextOccluders.add(scaleRectCentered(panelX, panelY, panelWidth, panelHeight, editorPopupAnimation.getPopupProgress()));
         }
 
         if (colorPickerPopupAnimation.isVisible()) {
-            int editorWidth = Math.min(EDITOR_PANEL_WIDTH, width - 60);
-            int editorHeight = Math.min(EDITOR_PANEL_HEIGHT, height - 60);
+            int editorWidth = Math.min(EDITOR_PANEL_WIDTH, Math.max(180, width - 20));
+            int editorHeight = Math.min(EDITOR_PANEL_HEIGHT, Math.max(140, height - 6));
             int editorX = (width - editorWidth) / 2;
-            int editorY = Math.max(20, (height - editorHeight) / 2);
+            int editorY = Math.max(3, (height - editorHeight) / 2);
             int panelWidth = COLOR_PICKER_PADDING * 2 + COLOR_PICKER_RADIUS * 2 + COLOR_PICKER_SLIDER_WIDTH + 12;
             int panelHeight = COLOR_PICKER_PADDING * 3 + COLOR_PICKER_RADIUS * 2 + COLOR_PICKER_FIELD_HEIGHT + 18;
             int panelX = editorX + editorWidth + 12;
@@ -1502,11 +1528,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             return;
         }
 
-        editorPanelWidth = Math.min(EDITOR_PANEL_WIDTH, width - 60);
-        editorPanelHeight = Math.min(EDITOR_PANEL_HEIGHT, height - 60);
+        editorPanelWidth = Math.min(EDITOR_PANEL_WIDTH, Math.max(180, width - 20));
+        editorPanelHeight = Math.min(EDITOR_PANEL_HEIGHT, Math.max(140, height - 6));
         editorPanelX = (width - editorPanelWidth) / 2;
         editorPanelY = (height - editorPanelHeight) / 2;
-        editorPanelY = Math.max(20, editorPanelY);
+        editorPanelY = Math.max(3, editorPanelY);
         context.fill(0, 0, width, height, editorPopupAnimation.getAnimatedBackgroundColor(0x80101010));
         beginPopupScaleTransform(context, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight, editorPopupAnimation);
 
@@ -1525,6 +1551,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int headerY = editorPanelY + 8;
         int headerHeight = textRenderer.fontHeight + 6;
         int contentTop = headerY + headerHeight + 8;
+        EditorPopupLayout layout = buildEditorPopupLayout(contentTop);
         int titleX = editorPanelX + 12;
         int titleY = contentTop;
         String title = selectedGroups.size() == 1
@@ -1546,8 +1573,8 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         drawBorder(context, editorCloseX, editorCloseY, editorCloseWidth, editorCloseHeight, UiStyle.EDGE_DARK);
         drawTextShadow(context, "X", editorCloseX + 4, editorCloseY + 3, UiStyle.ACCENT_RED);
 
-        int rowStartY = titleY + 20;
-        int rowHeight = 24;
+        int rowStartY = layout.rowStartY;
+        int rowHeight = layout.rowHeight;
         int boxSize = 14;
         ColorTarget[] targets = new ColorTarget[] {
             ColorTarget.BACKGROUND,
@@ -1598,9 +1625,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             drawTextShadow(context, mixed, opacityTextX - mixedWidth - 6, pressedOpacityY + 5, UiStyle.TEXT_MUTED);
         }
 
-        int controlsY = pressedOpacityY + rowHeight + 6;
+        int controlsY = pressedOpacityY + rowHeight + layout.sectionGap;
         int buttonWidth = 80;
-        int buttonHeight = 18;
+        int buttonHeight = layout.buttonHeight;
 
         String visibilityLabel = visibilityLabelForSelection();
         editorVisibilityWidth = buttonWidth;
@@ -1650,6 +1677,19 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         MatrixStackCompat.pop(context.getMatrices());
     }
 
+    private EditorPopupLayout buildEditorPopupLayout(int contentTop) {
+        int availableHeight = Math.max(1, editorPanelY + editorPanelHeight - contentTop - 10);
+        float scale = Math.min(1.0f, availableHeight / 188.0f);
+
+        int titleGap = Math.max(8, Math.round(20.0f * scale));
+        int rowHeight = Math.max(14, Math.round(24.0f * scale));
+        int sectionGap = Math.max(2, Math.round(6.0f * scale));
+        int buttonHeight = Math.max(12, Math.round(18.0f * scale));
+
+        int rowStartY = contentTop + titleGap;
+        return new EditorPopupLayout(rowStartY, rowHeight, sectionGap, buttonHeight);
+    }
+
     private boolean handleEditorPopupClick(double mouseX, double mouseY) {
         if (!isPointInside(mouseX, mouseY, editorPanelX, editorPanelY, editorPanelWidth, editorPanelHeight)) {
             closeEditor();
@@ -1664,9 +1704,9 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int headerY = editorPanelY + 8;
         int headerHeight = textRenderer.fontHeight + 6;
         int contentTop = headerY + headerHeight + 8;
-        int titleY = contentTop;
-        int rowStartY = titleY + 20;
-        int rowHeight = 24;
+        EditorPopupLayout layout = buildEditorPopupLayout(contentTop);
+        int rowStartY = layout.rowStartY;
+        int rowHeight = layout.rowHeight;
         int boxSize = 14;
         ColorTarget[] targets = new ColorTarget[] {
             ColorTarget.BACKGROUND,
@@ -3160,8 +3200,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         if (selectedGroups.isEmpty()) {
             return;
         }
-        List<OverlayConfig.KeyDefinition> keysToDelete = keysForSelectedGroups();
-        config.keys.removeAll(keysToDelete);
+        Set<String> selectedGroupIds = new HashSet<>();
+        for (Group group : selectedGroups) {
+            selectedGroupIds.add(group.id);
+        }
+        config.keys.removeIf(key -> selectedGroupIds.contains(key.group));
         OverlayConfig.save(config);
         selectedGroups.clear();
         closeEditor();
@@ -3541,6 +3584,20 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         private PressedOpacityState(float opacity, boolean mixed) {
             this.opacity = opacity;
             this.mixed = mixed;
+        }
+    }
+
+    private static final class EditorPopupLayout {
+        private final int rowStartY;
+        private final int rowHeight;
+        private final int sectionGap;
+        private final int buttonHeight;
+
+        private EditorPopupLayout(int rowStartY, int rowHeight, int sectionGap, int buttonHeight) {
+            this.rowStartY = rowStartY;
+            this.rowHeight = rowHeight;
+            this.sectionGap = sectionGap;
+            this.buttonHeight = buttonHeight;
         }
     }
 
