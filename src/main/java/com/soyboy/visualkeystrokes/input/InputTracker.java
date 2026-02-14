@@ -11,13 +11,16 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 public final class InputTracker {
+    private static final long ONE_SECOND_MS = 1000L;
     private final MinecraftClient client;
     private boolean leftPressed;
     private boolean rightPressed;
     private boolean middlePressed;
+    private final boolean[] pressedKeys = new boolean[GLFW.GLFW_KEY_LAST + 1];
     private final Deque<Long> leftClicks = new ArrayDeque<>();
     private final Deque<Long> rightClicks = new ArrayDeque<>();
     private final Deque<Long> middleClicks = new ArrayDeque<>();
+    private String lastPressedKey = "-";
 
     public InputTracker(MinecraftClient client) {
         this.client = client;
@@ -42,6 +45,7 @@ public final class InputTracker {
             leftPressed = false;
             rightPressed = false;
             middlePressed = false;
+            clearPressedKeys();
             return;
         }
 
@@ -65,6 +69,7 @@ public final class InputTracker {
         rightPressed = right;
         middlePressed = middle;
 
+        updateKeyboardStats(handle, now);
         pruneOldClicks(leftClicks, now);
         pruneOldClicks(rightClicks, now);
         pruneOldClicks(middleClicks, now);
@@ -75,13 +80,78 @@ public final class InputTracker {
             case "cps" -> Integer.toString(leftClicks.size());
             case "cps_rmb" -> Integer.toString(rightClicks.size());
             case "cps_mmb" -> Integer.toString(middleClicks.size());
+            case "last_key" -> lastPressedKey;
             default -> "0";
         };
     }
 
+    private void updateKeyboardStats(long handle, long now) {
+        for (int keyCode = GLFW.GLFW_KEY_SPACE; keyCode <= GLFW.GLFW_KEY_LAST; keyCode++) {
+            boolean keyDown = GLFW.glfwGetKey(handle, keyCode) == GLFW.GLFW_PRESS;
+            if (keyDown && !pressedKeys[keyCode]) {
+                lastPressedKey = resolveKeyLabel(keyCode);
+            }
+            pressedKeys[keyCode] = keyDown;
+        }
+    }
+
     private void pruneOldClicks(Deque<Long> clicks, long now) {
-        while (!clicks.isEmpty() && now - clicks.peekFirst() > 1000) {
+        while (!clicks.isEmpty() && now - clicks.peekFirst() > ONE_SECOND_MS) {
             clicks.removeFirst();
         }
+    }
+
+    private void clearPressedKeys() {
+        for (int i = 0; i < pressedKeys.length; i++) {
+            pressedKeys[i] = false;
+        }
+    }
+
+    private static String resolveKeyLabel(int keyCode) {
+        String glfwName = GLFW.glfwGetKeyName(keyCode, 0);
+        if (glfwName != null && !glfwName.isBlank()) {
+            return glfwName.toUpperCase();
+        }
+
+        return switch (keyCode) {
+            case GLFW.GLFW_KEY_SPACE -> "SPACE";
+            case GLFW.GLFW_KEY_ESCAPE -> "ESC";
+            case GLFW.GLFW_KEY_ENTER -> "ENTER";
+            case GLFW.GLFW_KEY_TAB -> "TAB";
+            case GLFW.GLFW_KEY_BACKSPACE -> "BACKSPACE";
+            case GLFW.GLFW_KEY_INSERT -> "INS";
+            case GLFW.GLFW_KEY_DELETE -> "DEL";
+            case GLFW.GLFW_KEY_RIGHT -> "RIGHT";
+            case GLFW.GLFW_KEY_LEFT -> "LEFT";
+            case GLFW.GLFW_KEY_DOWN -> "DOWN";
+            case GLFW.GLFW_KEY_UP -> "UP";
+            case GLFW.GLFW_KEY_PAGE_UP -> "PGUP";
+            case GLFW.GLFW_KEY_PAGE_DOWN -> "PGDN";
+            case GLFW.GLFW_KEY_HOME -> "HOME";
+            case GLFW.GLFW_KEY_END -> "END";
+            case GLFW.GLFW_KEY_CAPS_LOCK -> "CAPS";
+            case GLFW.GLFW_KEY_SCROLL_LOCK -> "SCROLL";
+            case GLFW.GLFW_KEY_NUM_LOCK -> "NUM";
+            case GLFW.GLFW_KEY_PRINT_SCREEN -> "PRTSC";
+            case GLFW.GLFW_KEY_PAUSE -> "PAUSE";
+            case GLFW.GLFW_KEY_LEFT_SHIFT -> "LSHIFT";
+            case GLFW.GLFW_KEY_RIGHT_SHIFT -> "RSHIFT";
+            case GLFW.GLFW_KEY_LEFT_CONTROL -> "LCTRL";
+            case GLFW.GLFW_KEY_RIGHT_CONTROL -> "RCTRL";
+            case GLFW.GLFW_KEY_LEFT_ALT -> "LALT";
+            case GLFW.GLFW_KEY_RIGHT_ALT -> "RALT";
+            case GLFW.GLFW_KEY_LEFT_SUPER -> "LWIN";
+            case GLFW.GLFW_KEY_RIGHT_SUPER -> "RWIN";
+            case GLFW.GLFW_KEY_MENU -> "MENU";
+            default -> {
+                if (keyCode >= GLFW.GLFW_KEY_F1 && keyCode <= GLFW.GLFW_KEY_F25) {
+                    yield "F" + (keyCode - GLFW.GLFW_KEY_F1 + 1);
+                }
+                if (keyCode >= GLFW.GLFW_KEY_KP_0 && keyCode <= GLFW.GLFW_KEY_KP_9) {
+                    yield "NUM" + (keyCode - GLFW.GLFW_KEY_KP_0);
+                }
+                yield "KEY " + keyCode;
+            }
+        };
     }
 }

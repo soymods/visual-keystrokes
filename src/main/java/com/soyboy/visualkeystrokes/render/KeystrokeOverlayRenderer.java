@@ -15,6 +15,8 @@ public final class KeystrokeOverlayRenderer {
     private static final float KEY_TEXT_BASE_SCALE = 0.84f;
     private static final float KEY_TEXT_BASE_HEIGHT = 24.0f;
     private static final float MOUSE_LABEL_SCALE_MULTIPLIER = 0.90f;
+    private static final int LAST_KEY_MIN_WIDTH = 24;
+    private static final int LAST_KEY_HORIZONTAL_PADDING = 6;
     private final InputTracker tracker;
     private final Supplier<OverlayConfig> configSupplier;
     private final MinecraftClient client;
@@ -54,14 +56,22 @@ public final class KeystrokeOverlayRenderer {
             int width = key.width;
             int height = key.height;
 
-            UiStyle.drawKeyCap(context, x, y, width, height, fillColor, borderColor, pressed);
-
             if (key.type == OverlayConfig.InputType.STAT) {
                 String value = tracker.getStatValue(key.statId);
+                if ("last_key".equals(key.statId)) {
+                    int dynamicWidth = Math.max(LAST_KEY_MIN_WIDTH, textRenderer.getWidth(value) + (LAST_KEY_HORIZONTAL_PADDING * 2));
+                    int centerX = x + (width / 2);
+                    int dynamicX = centerX - (dynamicWidth / 2);
+                    UiStyle.drawKeyCap(context, dynamicX, y, dynamicWidth, height, fillColor, borderColor, pressed);
+                    drawScaledTextFitBox(context, value, dynamicX + 2, y + 1, dynamicWidth - 4, height - 2, textColor);
+                    continue;
+                }
+                UiStyle.drawKeyCap(context, x, y, width, height, fillColor, borderColor, pressed);
                 int halfHeight = Math.max(1, height / 2);
                 drawScaledTextFitBox(context, key.label, x + 2, y + 1, width - 4, halfHeight - 1, textColor);
                 drawScaledTextFitBox(context, value, x + 2, y + halfHeight, width - 4, height - halfHeight - 1, textColor);
             } else {
+                UiStyle.drawKeyCap(context, x, y, width, height, fillColor, borderColor, pressed);
                 drawScaledTextFitBox(context, key.label, x + 2, y + 1, width - 4, height - 2, textColor);
             }
         }

@@ -2619,6 +2619,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         templates.put("cps", Template.stat("cps", "CPS Counter", statKey("CPS", "cps", 0, 0)));
         templates.put("cps_rmb", Template.stat("cps_rmb", "RMB CPS", statKey("RMB CPS", "cps_rmb", 0, 0)));
         templates.put("cps_mmb", Template.stat("cps_mmb", "MMB CPS", statKey("MMB CPS", "cps_mmb", 0, 0)));
+        templates.put("last_key", Template.stat("last_key", "Last Pressed Key", statKey("", "last_key", 0, 0, 56, 20)));
     }
 
     private List<Template> getTemplates(String filterText) {
@@ -2644,7 +2645,11 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
     }
 
     private OverlayConfig.KeyDefinition statKey(String label, String statId, int x, int y) {
-        return new OverlayConfig.KeyDefinition(label, statId, x, y, 64, 28, "stats");
+        return statKey(label, statId, x, y, 64, 28);
+    }
+
+    private OverlayConfig.KeyDefinition statKey(String label, String statId, int x, int y, int width, int height) {
+        return new OverlayConfig.KeyDefinition(label, statId, x, y, width, height, "stats");
     }
 
     private List<OverlayConfig.KeyDefinition> miniKeyboardKeys() {
@@ -3353,6 +3358,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
             case "cps" -> "CPS Counter";
             case "cps_rmb" -> "RMB CPS";
             case "cps_mmb" -> "MMB CPS";
+            case "last_key" -> "Last Pressed Key";
             case "lmb" -> "LMB";
             case "rmb" -> "RMB";
             case "mmb" -> "MMB";
