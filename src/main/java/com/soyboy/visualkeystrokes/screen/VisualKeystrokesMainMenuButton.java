@@ -1,5 +1,6 @@
 package com.soyboy.visualkeystrokes.screen;
 
+import com.soyboy.visualkeystrokes.ui.UiStyle;
 import com.soyboy.visualkeystrokes.util.TextCompatibilityBridge;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -41,6 +42,17 @@ public final class VisualKeystrokesMainMenuButton extends ButtonWidget {
     private void renderButtonIcon(DrawContext context) {
         this.setTooltip(Tooltip.of(resolveOpenEditorText()));
 
+        boolean hovered = this.isHovered();
+        int baseFill = !this.active
+            ? 0xFF252A33
+            : (hovered ? UiStyle.BUTTON_HOVER : UiStyle.BUTTON_FILL);
+        int fill = applyAlpha(baseFill, this.alpha);
+        int borderTop = applyAlpha(UiStyle.EDGE_LIGHT, this.alpha);
+        int borderBottom = applyAlpha(UiStyle.EDGE_DARK, this.alpha);
+
+        context.fill(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height, fill);
+        UiStyle.drawFrame(context, this.getX(), this.getY(), this.width, this.height, borderTop, borderBottom);
+
         int iconSize = this.width - ICON_PADDING * 2;
         int iconX = this.getX() + ICON_PADDING;
         int iconY = this.getY() + ICON_PADDING;
@@ -58,6 +70,12 @@ public final class VisualKeystrokesMainMenuButton extends ButtonWidget {
         }
         int tint = (alphaComponent << 24) | rgb;
         GuiTextureRenderer.drawIcon(context, ICON_TEXTURE, iconX, iconY, iconSize, tint);
+    }
+
+    private static int applyAlpha(int color, float alphaMultiplier) {
+        int alpha = (color >>> 24) & 0xFF;
+        int scaledAlpha = MathHelper.ceil(alpha * Math.max(0.0f, Math.min(1.0f, alphaMultiplier)));
+        return (scaledAlpha << 24) | (color & 0x00FFFFFF);
     }
 
     private static MutableText resolveOpenEditorText() {
