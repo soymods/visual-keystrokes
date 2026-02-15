@@ -13,13 +13,20 @@ public final class VisualKeystrokesEditorScreenModern extends VisualKeystrokesEd
 
     @Override
     public boolean mouseClicked(Click click, boolean doubleClick) {
-        if (click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && searchField != null && isSearchFieldHit(click.x(), click.y())) {
+        boolean primaryClick = isPrimaryClick(click);
+        if (primaryClick && searchField != null && isSearchFieldHit(click.x(), click.y())) {
             setFocused(searchField);
             searchField.setFocused(true);
             searchField.onClick(click, doubleClick);
             return true;
         }
-        if (handleMouseClicked(click.x(), click.y(), click.button(), doubleClick)) {
+
+        if (handleMouseClicked(
+            click.x(),
+            click.y(),
+            primaryClick ? GLFW.GLFW_MOUSE_BUTTON_LEFT : click.button(),
+            doubleClick
+        )) {
             return true;
         }
         return super.mouseClicked(click, doubleClick);
@@ -27,7 +34,14 @@ public final class VisualKeystrokesEditorScreenModern extends VisualKeystrokesEd
 
     @Override
     public boolean mouseDragged(Click click, double deltaX, double deltaY) {
-        if (handleMouseDragged(click.x(), click.y(), click.button(), deltaX, deltaY)) {
+        boolean primaryClick = isPrimaryClick(click);
+        if (handleMouseDragged(
+            click.x(),
+            click.y(),
+            primaryClick ? GLFW.GLFW_MOUSE_BUTTON_LEFT : click.button(),
+            deltaX,
+            deltaY
+        )) {
             return true;
         }
         return super.mouseDragged(click, deltaX, deltaY);
@@ -35,7 +49,12 @@ public final class VisualKeystrokesEditorScreenModern extends VisualKeystrokesEd
 
     @Override
     public boolean mouseReleased(Click click) {
-        if (handleMouseReleased(click.x(), click.y(), click.button())) {
+        boolean primaryClick = isPrimaryClick(click);
+        if (handleMouseReleased(
+            click.x(),
+            click.y(),
+            primaryClick ? GLFW.GLFW_MOUSE_BUTTON_LEFT : click.button()
+        )) {
             return true;
         }
         return super.mouseReleased(click);
@@ -65,5 +84,9 @@ public final class VisualKeystrokesEditorScreenModern extends VisualKeystrokesEd
             return true;
         }
         return super.charTyped(input);
+    }
+
+    private static boolean isPrimaryClick(Click click) {
+        return click.isLeft() || click.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT;
     }
 }

@@ -1022,7 +1022,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int sidebarWidth = (int) (SIDEBAR_WIDTH * sidebarProgress);
         int sidebarX = width - sidebarWidth;
         int searchX = sidebarX + SIDEBAR_PADDING;
-        int searchY = HEADER_Y + 14;
+        int searchY = HEADER_Y + 22;
         int searchWidth = sidebarWidth - SIDEBAR_PADDING * 2;
         return isPointInside(mouseX, mouseY, searchX, searchY, searchWidth, SEARCH_HEIGHT);
     }
@@ -1100,7 +1100,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         }
 
         int searchX = sidebarX + SIDEBAR_PADDING;
-        int searchY = HEADER_Y + 14;
+        int searchY = HEADER_Y + 22;
         int searchWidth = sidebarWidth - SIDEBAR_PADDING * 2;
         if (isPointInside(mouseX, mouseY, searchX, searchY, searchWidth, SEARCH_HEIGHT)) {
             return false;
