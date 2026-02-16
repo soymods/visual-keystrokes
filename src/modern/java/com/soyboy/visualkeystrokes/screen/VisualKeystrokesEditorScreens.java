@@ -3,7 +3,6 @@ package com.soyboy.visualkeystrokes.screen;
 import com.soyboy.visualkeystrokes.config.OverlayConfig;
 import net.minecraft.client.gui.screen.Screen;
 
-import java.lang.reflect.Method;
 
 public final class VisualKeystrokesEditorScreens {
     private static final boolean MODERN_INPUT_AVAILABLE = hasModernInput();
@@ -19,20 +18,20 @@ public final class VisualKeystrokesEditorScreens {
     }
 
     private static boolean hasModernInput() {
+        // Checking Minecraft class names (e.g. "net.minecraft.client.gui.Element") by string
+        // does not work in production because Fabric Loom remaps bytecode references but NOT
+        // string constants, so at runtime all MC classes have intermediary names (class_XXXX).
+        // Instead, probe for the mod's own modern screen class — mod package names are never
+        // remapped — and let a ClassNotFoundException or NoClassDefFoundError signal that the
+        // required MC API (net.minecraft.client.gui.Click) is unavailable.
         try {
-            ClassLoader loader = VisualKeystrokesEditorScreens.class.getClassLoader();
-            Class<?> elementClass = Class.forName("net.minecraft.client.gui.Element", false, loader);
-            for (Method method : elementClass.getMethods()) {
-                if (!method.getName().equals("mouseClicked") || method.getParameterCount() != 2) {
-                    continue;
-                }
-                Class<?>[] params = method.getParameterTypes();
-                if ("net.minecraft.client.gui.Click".equals(params[0].getName())) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (ClassNotFoundException e) {
+            Class.forName(
+                "com.soyboy.visualkeystrokes.screen.VisualKeystrokesEditorScreenModern",
+                false,
+                VisualKeystrokesEditorScreens.class.getClassLoader()
+            );
+            return true;
+        } catch (ClassNotFoundException | NoClassDefFoundError e) {
             return false;
         }
     }

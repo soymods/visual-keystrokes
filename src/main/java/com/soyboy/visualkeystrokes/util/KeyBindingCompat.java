@@ -5,21 +5,21 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.util.Identifier;
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 
 public final class KeyBindingCompat {
     private static final String LEGACY_CATEGORY = "key.categories.visualkeystrokes";
-    private static final String CATEGORY_CLASS = "net.minecraft.client.option.KeyBinding$Category";
-    private static final String INPUT_KEY_CLASS = "net.minecraft.client.util.InputUtil$Key";
 
     private KeyBindingCompat() {
     }
 
     public static KeyBinding createKeyBinding(String translationKey, InputUtil.Type type, int code) {
         List<String> signatures = new ArrayList<>();
-        ReflectiveOperationException lastError = null;
+        Exception lastError = null;
         for (Constructor<?> ctor : KeyBinding.class.getConstructors()) {
             signatures.add(signatureOf(ctor));
             try {
@@ -27,7 +27,7 @@ public final class KeyBindingCompat {
                 if (keyBinding != null) {
                     return keyBinding;
                 }
-            } catch (ReflectiveOperationException e) {
+            } catch (ReflectiveOperationException | IllegalArgumentException e) {
                 lastError = e;
             }
         }
@@ -54,8 +54,8 @@ public final class KeyBindingCompat {
 
         for (int i = 1; i < params.length; i++) {
             Class<?> param = params[i];
-            if (param == InputUtil.Type.class) {
-                args[i] = type;
+            if (isInputTypeClass(param)) {
+                args[i] = resolveInputType(param, type);
                 continue;
             }
             if (param == int.class) {
@@ -110,12 +110,55 @@ public final class KeyBindingCompat {
             }
         }
 
+        // At runtime with intermediary names, Yarn names like "MISC" and "create" don't exist.
+        // Fall back to structural detection: enum constants or any public static field of this type.
+        if (categoryClass.isEnum()) {
+            Object[] constants = categoryClass.getEnumConstants();
+            if (constants != null && constants.length > 0) {
+                return constants[0];
+            }
+        }
+        for (Field field : categoryClass.getFields()) {
+            if (Modifier.isStatic(field.getModifiers()) && categoryClass.isAssignableFrom(field.getType())) {
+                Object value = field.get(null);
+                if (value != null) {
+                    return value;
+                }
+            }
+        }
+
         throw new NoSuchMethodException("No supported key binding category creation path in " + categoryClass.getName());
     }
 
     private static Object createInputKey(InputUtil.Type type, int code) throws ReflectiveOperationException {
         Method createFromCode = type.getClass().getMethod("createFromCode", int.class);
         return createFromCode.invoke(type, code);
+    }
+
+    private static Object resolveInputType(Class<?> targetClass, InputUtil.Type fallback) throws ReflectiveOperationException {
+        if (targetClass.isInstance(fallback)) {
+            return fallback;
+        }
+        String fallbackName = ((Enum<?>) fallback).name();
+        if (targetClass.isEnum()) {
+            Object[] constants = targetClass.getEnumConstants();
+            for (Object constant : constants) {
+                if (constant instanceof Enum<?> enumConstant && enumConstant.name().equals(fallbackName)) {
+                    return constant;
+                }
+            }
+        }
+        for (String fieldName : new String[]{fallbackName, "KEYSYM", "SCANCODE", "MOUSE"}) {
+            try {
+                Object value = targetClass.getField(fieldName).get(null);
+                if (value != null) {
+                    return value;
+                }
+            } catch (NoSuchFieldException ignored) {
+                // Try next field.
+            }
+        }
+        throw new NoSuchMethodException("No supported input type mapping for " + targetClass.getName());
     }
 
     private static Identifier createIdentifier(String namespace, String path) throws ReflectiveOperationException {
@@ -141,11 +184,47 @@ public final class KeyBindingCompat {
     }
 
     private static boolean isCategoryClass(Class<?> type) {
-        return CATEGORY_CLASS.equals(type.getName());
+        // Exclude types already handled by other branches in tryCreate().
+        if (type.isPrimitive() || type == String.class) {
+            return false;
+        }
+        if (isInputTypeClass(type) || isInputKeyClass(type)) {
+            return false;
+        }
+        // Any remaining non-primitive object type is treated as a category.
+        // The Yarn-name checks below are only reachable in a dev environment;
+        // at runtime all names are intermediary (e.g. class_11900), so the
+        // catch-all above is what actually fires in production.
+        return true;
+    }
+
+    private static boolean isInputTypeClass(Class<?> type) {
+        if (type == InputUtil.Type.class) {
+            return true;
+        }
+        if (type.isPrimitive() || type == String.class) {
+            return false;
+        }
+        return hasMethod(type, "createFromCode", int.class) && hasMethod(type, "name");
     }
 
     private static boolean isInputKeyClass(Class<?> type) {
-        return INPUT_KEY_CLASS.equals(type.getName());
+        if (type.isPrimitive() || type == String.class) {
+            return false;
+        }
+        if (type.getName().equals("net.minecraft.client.util.InputUtil$Key")) {
+            return true;
+        }
+        return hasMethod(type, "getCode") && hasMethod(type, "getCategory");
+    }
+
+    private static boolean hasMethod(Class<?> owner, String name, Class<?>... params) {
+        try {
+            owner.getMethod(name, params);
+            return true;
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
     }
 
     private static String signatureOf(Constructor<?> ctor) {
