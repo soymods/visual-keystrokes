@@ -8,8 +8,7 @@
 [![License](https://img.shields.io/badge/License-See%20LICENSE-lightgrey?style=for-the-badge)](LICENSE.txt)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)](https://github.com/soymods/pathmind)
 
-A highly customizable keystroke overlay for Minecraft 1.21-1.21.11. It renders a live, configurable layout of keyboard and mouse
-inputs so players can see exactly what is being pressed in real time.
+A refined keystroke HUD built for performance and customization
 
 ### ⬇️ **DOWNLOAD VISUAL-KEYSTROKES ON MODRINTH** ⬇️
 
