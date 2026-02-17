@@ -19,9 +19,12 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.lwjgl.glfw.GLFW;
 
 public final class VisualKeystrokesClient implements ClientModInitializer {
+    private static final Logger LOGGER = LoggerFactory.getLogger("visualkeystrokes");
     private static OverlayConfig config;
     @Override
     public void onInitializeClient() {
@@ -37,16 +40,25 @@ public final class VisualKeystrokesClient implements ClientModInitializer {
             }
         });
 
-        KeyBinding toggleKey = KeyBindingHelper.registerKeyBinding(
-            KeyBindingCompat.createKeyBinding(
-                "key.visualkeystrokes.toggle",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_F8
-            )
-        );
+        KeyBinding registeredToggleKey = null;
+        try {
+            registeredToggleKey = KeyBindingHelper.registerKeyBinding(
+                KeyBindingCompat.createKeyBinding(
+                    "key.visualkeystrokes.toggle",
+                    InputUtil.Type.KEYSYM,
+                    GLFW.GLFW_KEY_F8
+                )
+            );
+        } catch (Throwable t) {
+            LOGGER.error("Failed to register VisualKeystrokes toggle keybinding; startup will continue with keybind disabled.", t);
+        }
+        final KeyBinding toggleKey = registeredToggleKey;
 
         ClientTickEvents.END_CLIENT_TICK.register(tickClient -> {
             tracker.update();
+            if (toggleKey == null) {
+                return;
+            }
             while (toggleKey.wasPressed()) {
                 config.enabled = !config.enabled;
                 OverlayConfig.save(config);

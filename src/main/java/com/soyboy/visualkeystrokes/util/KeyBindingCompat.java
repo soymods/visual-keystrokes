@@ -10,17 +10,23 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 public final class KeyBindingCompat {
     private static final String LEGACY_CATEGORY = "key.categories.visualkeystrokes";
+    private static final String CATEGORY_CLASS = "net.minecraft.client.option.KeyBinding$Category";
+    private static final String CATEGORY_CLASS_INTERMEDIARY = "net.minecraft.class_304$class_11900";
+    private static final String INPUT_KEY_CLASS = "net.minecraft.client.util.InputUtil$Key";
+    private static final String INPUT_KEY_CLASS_INTERMEDIARY = "net.minecraft.class_3675$class_306";
 
     private KeyBindingCompat() {
     }
 
     public static KeyBinding createKeyBinding(String translationKey, InputUtil.Type type, int code) {
         List<String> signatures = new ArrayList<>();
-        Exception lastError = null;
-        for (Constructor<?> ctor : KeyBinding.class.getConstructors()) {
+        ReflectiveOperationException lastError = null;
+        for (Constructor<?> ctor : KeyBinding.class.getDeclaredConstructors()) {
+            ctor.setAccessible(true);
             signatures.add(signatureOf(ctor));
             try {
                 KeyBinding keyBinding = tryCreate(ctor, translationKey, type, code);
@@ -63,6 +69,10 @@ public final class KeyBindingCompat {
                 usedCode = true;
                 continue;
             }
+            if (param == boolean.class || param == Boolean.class) {
+                args[i] = false;
+                continue;
+            }
             if (param == String.class) {
                 args[i] = LEGACY_CATEGORY;
                 continue;
@@ -73,6 +83,10 @@ public final class KeyBindingCompat {
             }
             if (isCategoryClass(param)) {
                 args[i] = createModernCategory(param);
+                continue;
+            }
+            if (param == BooleanSupplier.class) {
+                args[i] = (BooleanSupplier) () -> false;
                 continue;
             }
             return null;
@@ -131,8 +145,14 @@ public final class KeyBindingCompat {
     }
 
     private static Object createInputKey(InputUtil.Type type, int code) throws ReflectiveOperationException {
-        Method createFromCode = type.getClass().getMethod("createFromCode", int.class);
-        return createFromCode.invoke(type, code);
+        try {
+            Method createFromCode = type.getClass().getMethod("createFromCode", int.class);
+            return createFromCode.invoke(type, code);
+        } catch (NoSuchMethodException e) {
+            // Intermediary runtime name for InputUtil.Type#createFromCode(int).
+            Method intermediary = type.getClass().getMethod("method_1444", int.class);
+            return intermediary.invoke(type, code);
+        }
     }
 
     private static Object resolveInputType(Class<?> targetClass, InputUtil.Type fallback) throws ReflectiveOperationException {
@@ -184,6 +204,10 @@ public final class KeyBindingCompat {
     }
 
     private static boolean isCategoryClass(Class<?> type) {
+        String name = type.getName();
+        if (CATEGORY_CLASS.equals(name) || CATEGORY_CLASS_INTERMEDIARY.equals(name)) {
+            return true;
+        }
         // Exclude types already handled by other branches in tryCreate().
         if (type.isPrimitive() || type == String.class) {
             return false;
@@ -191,11 +215,8 @@ public final class KeyBindingCompat {
         if (isInputTypeClass(type) || isInputKeyClass(type)) {
             return false;
         }
-        // Any remaining non-primitive object type is treated as a category.
-        // The Yarn-name checks below are only reachable in a dev environment;
-        // at runtime all names are intermediary (e.g. class_11900), so the
-        // catch-all above is what actually fires in production.
-        return true;
+        // Intermediary mappings can change; keep a structural fallback.
+        return type.isEnum();
     }
 
     private static boolean isInputTypeClass(Class<?> type) {
@@ -205,15 +226,17 @@ public final class KeyBindingCompat {
         if (type.isPrimitive() || type == String.class) {
             return false;
         }
-        return hasMethod(type, "createFromCode", int.class) && hasMethod(type, "name");
+        return (hasMethod(type, "createFromCode", int.class) || hasMethod(type, "method_1444", int.class))
+            && hasMethod(type, "name");
     }
 
     private static boolean isInputKeyClass(Class<?> type) {
+        String name = type.getName();
+        if (INPUT_KEY_CLASS.equals(name) || INPUT_KEY_CLASS_INTERMEDIARY.equals(name)) {
+            return true;
+        }
         if (type.isPrimitive() || type == String.class) {
             return false;
-        }
-        if (type.getName().equals("net.minecraft.client.util.InputUtil$Key")) {
-            return true;
         }
         return hasMethod(type, "getCode") && hasMethod(type, "getCategory");
     }
