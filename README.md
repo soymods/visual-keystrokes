@@ -111,7 +111,7 @@ A refined keystroke HUD built for performance and customization
 
 | Component | Version |
 |-----------|---------|
-| **Mod Version** | 1.0.2 |
+| **Mod Version** | 1.0.3 |
 | **Minecraft Version** | 1.21-1.21.11 (default 1.21.11) |
 | **Yarn Mappings** | Resolved per target (default 1.21.11+build.3) |
 | **Fabric Loader** | 0.18.3 |

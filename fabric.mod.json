@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "visualkeystrokes",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "name": "Visual Keystrokes",
   "description": "Highly customizable keystroke and mouse overlay.",
   "authors": ["soymods"],
