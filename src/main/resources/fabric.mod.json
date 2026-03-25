@@ -5,9 +5,9 @@
   "name": "Visual Keystrokes",
   "description": "Highly customizable keystroke and mouse overlay.",
   "icon": "assets/visualkeystrokes/logo.png",
-  "authors": ["soyboy"],
+  "authors": ["soymods"],
   "contact": {
-    "sources": "https://github.com/yourname/visual-keystrokes"
+    "sources": "https://github.com/soymods/visual-keystrokes"
   },
   "license": "All Rights Reserved",
   "environment": "client",

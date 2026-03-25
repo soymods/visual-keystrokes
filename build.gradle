@@ -84,6 +84,7 @@ sourceSets {
                     useModernInput ? 'src/modern/java' : 'src/legacy/java',
                     useJomlMatrices ? 'src/matrix-joml/java' : 'src/matrix-stack/java'
             ])
+            exclude 'com/ryduzz/**'
         }
     }
 }

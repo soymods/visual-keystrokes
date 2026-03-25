@@ -917,7 +917,7 @@ public abstract class VisualKeystrokesEditorScreenBase extends Screen implements
         int textY = panelY + 34;
         drawCenteredText(context, "Visual Keystrokes", centerX, textY);
         textY += 34;
-        drawCenteredText(context, "Created by: soyboy", centerX, textY);
+        drawCenteredText(context, "Created by: soymods", centerX, textY);
         textY += 20;
         drawCenteredText(context, "Built for Minecraft: 1.21 - 1.21.11", centerX, textY);
         textY += 20;

@@ -42,13 +42,13 @@ public final class VisualKeystrokesMainMenuButton extends ButtonWidget {
     private void renderButtonIcon(DrawContext context) {
         this.setTooltip(Tooltip.of(resolveOpenEditorText()));
 
-        boolean hovered = this.isHovered();
+        boolean hovered = this.active && this.isHovered();
         int baseFill = !this.active
             ? 0xFF252A33
-            : (hovered ? UiStyle.BUTTON_HOVER : UiStyle.BUTTON_FILL);
+            : (hovered ? 0xFF223A5A : 0xFF162842);
         int fill = applyAlpha(baseFill, this.alpha);
-        int borderTop = applyAlpha(UiStyle.EDGE_LIGHT, this.alpha);
-        int borderBottom = applyAlpha(UiStyle.EDGE_DARK, this.alpha);
+        int borderTop = applyAlpha(hovered ? 0xFFFFFFFF : UiStyle.EDGE_LIGHT, this.alpha);
+        int borderBottom = applyAlpha(hovered ? 0xFFFFFFFF : UiStyle.EDGE_DARK, this.alpha);
 
         context.fill(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height, fill);
         UiStyle.drawFrame(context, this.getX(), this.getY(), this.width, this.height, borderTop, borderBottom);

@@ -33,8 +33,10 @@ public final class KeyBindingCompat {
                 if (keyBinding != null) {
                     return keyBinding;
                 }
-            } catch (ReflectiveOperationException | IllegalArgumentException e) {
+            } catch (ReflectiveOperationException e) {
                 lastError = e;
+            } catch (IllegalArgumentException e) {
+                lastError = new ReflectiveOperationException("Unsupported KeyBinding constructor arguments", e);
             }
         }
         if (lastError != null) {
