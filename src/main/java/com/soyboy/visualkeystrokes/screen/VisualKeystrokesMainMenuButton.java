@@ -16,6 +16,7 @@ import net.minecraft.util.math.MathHelper;
 public final class VisualKeystrokesMainMenuButton extends ButtonWidget {
     private static final Identifier ICON_TEXTURE = Identifier.of("visualkeystrokes", "textures/gui/button_logo.png");
     private static final int ICON_PADDING = 2;
+    private static final int SHADOW_COLOR = 0x66000000;
     private static final String OPEN_EDITOR_KEY = "gui.visualkeystrokes.open_editor";
     private static final String OPEN_EDITOR_FALLBACK = "Open Visual Keystrokes Editor";
 
@@ -49,13 +50,23 @@ public final class VisualKeystrokesMainMenuButton extends ButtonWidget {
         int fill = applyAlpha(baseFill, this.alpha);
         int borderTop = applyAlpha(hovered ? 0xFFFFFFFF : UiStyle.EDGE_LIGHT, this.alpha);
         int borderBottom = applyAlpha(hovered ? 0xFFFFFFFF : UiStyle.EDGE_DARK, this.alpha);
+        int shadow = applyAlpha(SHADOW_COLOR, this.alpha);
 
-        context.fill(this.getX(), this.getY(), this.getX() + this.width, this.getY() + this.height, fill);
-        UiStyle.drawFrame(context, this.getX(), this.getY(), this.width, this.height, borderTop, borderBottom);
+        int x = this.getX();
+        int y = this.getY();
+        int w = this.width;
+        int h = this.height;
+        context.fill(x + 1, y + h, x + w + 1, y + h + 1, shadow);
+        context.fill(x + w, y + 1, x + w + 1, y + h, shadow);
+        context.fill(x, y, x + w, y + h, fill);
+        context.fill(x, y, x + w, y + 1, borderTop);
+        context.fill(x, y, x + 1, y + h, borderTop);
+        context.fill(x, y + h - 1, x + w, y + h, borderBottom);
+        context.fill(x + w - 1, y, x + w, y + h, borderBottom);
 
         int iconSize = this.width - ICON_PADDING * 2;
-        int iconX = this.getX() + ICON_PADDING;
-        int iconY = this.getY() + ICON_PADDING;
+        int iconX = x + ICON_PADDING;
+        int iconY = y + ICON_PADDING;
 
         int rgb;
         if (!this.active) {
