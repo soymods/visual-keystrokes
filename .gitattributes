@@ -1,0 +1,7 @@
+# Tiny mappings use trailing tabs for empty columns; keep them byte-exact.
+*.tiny -text -whitespace
+
+# Gradle wrapper scripts
+/gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary

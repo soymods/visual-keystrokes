@@ -1,9 +1,5 @@
 package com.soyboy.visualkeystrokes.util;
 
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.util.Identifier;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -12,12 +8,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
+import net.minecraft.util.Identifier;
+
 public final class KeyBindingCompat {
     private static final String LEGACY_CATEGORY = "key.categories.visualkeystrokes";
     private static final String CATEGORY_CLASS = "net.minecraft.client.option.KeyBinding$Category";
     private static final String CATEGORY_CLASS_INTERMEDIARY = "net.minecraft.class_304$class_11900";
+    private static final String CATEGORY_CLASS_MOJANG = "net.minecraft.client.KeyMapping$Category";
     private static final String INPUT_KEY_CLASS = "net.minecraft.client.util.InputUtil$Key";
     private static final String INPUT_KEY_CLASS_INTERMEDIARY = "net.minecraft.class_3675$class_306";
+    private static final String INPUT_KEY_CLASS_MOJANG = "com.mojang.blaze3d.platform.InputConstants$Key";
 
     private KeyBindingCompat() {
     }
@@ -151,9 +153,15 @@ public final class KeyBindingCompat {
             Method createFromCode = type.getClass().getMethod("createFromCode", int.class);
             return createFromCode.invoke(type, code);
         } catch (NoSuchMethodException e) {
-            // Intermediary runtime name for InputUtil.Type#createFromCode(int).
-            Method intermediary = type.getClass().getMethod("method_1444", int.class);
-            return intermediary.invoke(type, code);
+            // Runtime names for InputUtil.Type#createFromCode(int): intermediary (Fabric), then Mojang (NeoForge).
+            for (String name : new String[]{"method_1444", "getOrCreate"}) {
+                try {
+                    return type.getClass().getMethod(name, int.class).invoke(type, code);
+                } catch (NoSuchMethodException ignored) {
+                    // Try next name.
+                }
+            }
+            throw e;
         }
     }
 
@@ -207,7 +215,7 @@ public final class KeyBindingCompat {
 
     private static boolean isCategoryClass(Class<?> type) {
         String name = type.getName();
-        if (CATEGORY_CLASS.equals(name) || CATEGORY_CLASS_INTERMEDIARY.equals(name)) {
+        if (CATEGORY_CLASS.equals(name) || CATEGORY_CLASS_INTERMEDIARY.equals(name) || CATEGORY_CLASS_MOJANG.equals(name)) {
             return true;
         }
         // Exclude types already handled by other branches in tryCreate().
@@ -228,13 +236,15 @@ public final class KeyBindingCompat {
         if (type.isPrimitive() || type == String.class) {
             return false;
         }
-        return (hasMethod(type, "createFromCode", int.class) || hasMethod(type, "method_1444", int.class))
+        return (hasMethod(type, "createFromCode", int.class)
+            || hasMethod(type, "method_1444", int.class)
+            || hasMethod(type, "getOrCreate", int.class))
             && hasMethod(type, "name");
     }
 
     private static boolean isInputKeyClass(Class<?> type) {
         String name = type.getName();
-        if (INPUT_KEY_CLASS.equals(name) || INPUT_KEY_CLASS_INTERMEDIARY.equals(name)) {
+        if (INPUT_KEY_CLASS.equals(name) || INPUT_KEY_CLASS_INTERMEDIARY.equals(name) || INPUT_KEY_CLASS_MOJANG.equals(name)) {
             return true;
         }
         if (type.isPrimitive() || type == String.class) {

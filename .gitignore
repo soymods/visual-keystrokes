@@ -20,4 +20,4 @@ Thumbs.db
 *.log
 
 # Config outputs
-config/
+/config/

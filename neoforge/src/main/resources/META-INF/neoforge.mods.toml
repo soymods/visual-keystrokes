@@ -1,0 +1,29 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+issueTrackerURL = "https://github.com/soymods/visual-keystrokes/issues"
+
+[[mods]]
+modId = "visualkeystrokes"
+version = "${version}"
+displayName = "Visual Keystrokes"
+description = "Highly customizable keystroke and mouse overlay."
+authors = "soymods"
+displayURL = "https://github.com/soymods/visual-keystrokes"
+logoFile = "assets/visualkeystrokes/logo.png"
+# Client-only: don't flag servers that lack the mod as incompatible.
+displayTest = "IGNORE_ALL_VERSION"
+
+[[dependencies.visualkeystrokes]]
+modId = "neoforge"
+type = "required"
+versionRange = "[${neoforge_dependency},)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.visualkeystrokes]]
+modId = "minecraft"
+type = "required"
+versionRange = "[${minecraft_dependency}]"
+ordering = "NONE"
+side = "CLIENT"

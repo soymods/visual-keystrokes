@@ -1,0 +1,54 @@
+plugins {
+    id 'com.gradleup.shadow'
+}
+
+architectury {
+    platformSetupLoomIde()
+    fabric()
+}
+
+configurations {
+    common {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+    compileClasspath.extendsFrom common
+    runtimeClasspath.extendsFrom common
+    developmentFabric.extendsFrom common
+
+    // Bundled into the mod jar.
+    shadowBundle {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+}
+
+dependencies {
+    modImplementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.fabric_version}"
+
+    common(project(path: ':common', configuration: 'namedElements')) { transitive false }
+    shadowBundle project(path: ':common', configuration: 'transformProductionFabric')
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft_dependency', rootProject.minecraft_version
+
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version,
+                'minecraft_dependency': rootProject.minecraft_version
+    }
+}
+
+shadowJar {
+    configurations = [project.configurations.shadowBundle]
+    archiveClassifier = 'dev-shadow'
+    from(rootProject.file('LICENSE.txt')) {
+        rename { "${it}_${rootProject.archives_base_name}" }
+    }
+}
+
+remapJar {
+    inputFile.set shadowJar.archiveFile
+}

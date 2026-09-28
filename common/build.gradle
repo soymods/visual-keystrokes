@@ -1,0 +1,27 @@
+architectury {
+    common(rootProject.enabled_platforms.split(','))
+}
+
+dependencies {
+    // Only for the @Environment annotations on Yarn-mapped Minecraft classes. Don't use Fabric
+    // Loader APIs here; common code also runs on NeoForge. Go through VisualKeystrokesPlatform.
+    modImplementation "net.fabricmc:fabric-loader:${rootProject.loader_version}"
+}
+
+sourceSets {
+    main {
+        java {
+            setSrcDirs([
+                    'src/main/java',
+                    rootProject.useModernInput ? 'src/modern/java' : 'src/legacy/java',
+                    rootProject.useJomlMatrices ? 'src/matrix-joml/java' : 'src/matrix-stack/java'
+            ])
+            exclude 'com/ryduzz/**'
+        }
+    }
+}
+
+// Common code only runs through a loader; use :fabric:runClient or :neoforge:runClient.
+tasks.matching { it.name == 'runClient' || it.name == 'runServer' }.configureEach {
+    enabled = false
+}

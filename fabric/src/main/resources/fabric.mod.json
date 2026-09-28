@@ -13,7 +13,7 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "com.soyboy.visualkeystrokes.VisualKeystrokesClient"
+      "com.soyboy.visualkeystrokes.fabric.VisualKeystrokesFabric"
     ]
   },
   "depends": {

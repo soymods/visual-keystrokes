@@ -1,10 +1,11 @@
-plugins {
-    id 'fabric-loom' version '1.13.6'
-    id 'maven-publish'
-}
+import groovy.xml.XmlSlurper
 
-version = project.mod_version
-group = project.maven_group
+plugins {
+    id 'architectury-plugin' version '3.4.164'
+    // 1.17 moved classes that architectury-plugin 3.4.x still references; stay on 1.14 until the plugin catches up.
+    id 'dev.architectury.loom' version '1.14.476' apply false
+    id 'com.gradleup.shadow' version '9.6.1' apply false
+}
 
 def supportedMcVersions = (project.findProperty('supported_mc_versions') ?: '1.21,1.21.1,1.21.2,1.21.3,1.21.4,1.21.5,1.21.6,1.21.7,1.21.8,1.21.9,1.21.10,1.21.11')
         .split(',')
@@ -15,13 +16,34 @@ if (!supportedMcVersions.contains(requestedMcVersion)) {
     throw new GradleException("Unsupported mc_version '${requestedMcVersion}'. Supported versions: ${supportedMcVersions.join(', ')}")
 }
 
-def resolveFromMavenMetadata(String metadataUrl, Closure<Boolean> matcher, String label) {
-    def metadataText = new URL(metadataUrl).getText('UTF-8')
-    def metadata = new XmlSlurper().parseText(metadataText)
-    def versions = metadata.versioning.versions.version.collect { it.text() }
-    def matches = versions.findAll(matcher)
+def fetchMavenVersions(String metadataUrl) {
+    def cacheFile = new File(rootDir, ".gradle/maven-metadata/${metadataUrl.replaceAll('[^A-Za-z0-9.-]', '_')}")
+    int attempts = 5
+    String metadataText = null
+    for (int attempt = 1; metadataText == null; attempt++) {
+        try {
+            metadataText = new URL(metadataUrl).getText('UTF-8')
+            cacheFile.parentFile.mkdirs()
+            cacheFile.setText(metadataText, 'UTF-8')
+        } catch (IOException e) {
+            if (attempt < attempts) {
+                logger.warn("Fetching ${metadataUrl} failed (${e}); retrying (${attempt}/${attempts - 1})")
+                Thread.sleep(2000L * attempt)
+            } else if (cacheFile.isFile()) {
+                logger.warn("Fetching ${metadataUrl} failed ${attempts} times; using the copy cached ${new Date(cacheFile.lastModified())}")
+                metadataText = cacheFile.getText('UTF-8')
+            } else {
+                throw new GradleException("Failed to fetch ${metadataUrl} after ${attempts} attempts", e)
+            }
+        }
+    }
+    return new XmlSlurper().parseText(metadataText).versioning.versions.version.collect { it.text() }
+}
+
+def resolveFromMavenMetadata(String metadataUrl, Closure<Boolean> matcher, String label, String mcVersion) {
+    def matches = fetchMavenVersions(metadataUrl).findAll(matcher)
     if (matches.isEmpty()) {
-        throw new GradleException("No ${label} version found for Minecraft ${requestedMcVersion} at ${metadataUrl}")
+        throw new GradleException("No ${label} version found for Minecraft ${mcVersion} at ${metadataUrl}")
     }
     return matches.last()
 }
@@ -29,29 +51,46 @@ def resolveFromMavenMetadata(String metadataUrl, Closure<Boolean> matcher, Strin
 def useDynamicResolution = project.hasProperty('mc_version')
 def hasExplicitYarnMappings = project.gradle.startParameter.projectProperties.containsKey('yarn_mappings')
 def hasExplicitFabricVersion = project.gradle.startParameter.projectProperties.containsKey('fabric_version')
+def hasExplicitNeoForgeVersion = project.gradle.startParameter.projectProperties.containsKey('neoforge_version')
 
 def resolvedYarnMappings = (useDynamicResolution && !hasExplicitYarnMappings)
         ? resolveFromMavenMetadata(
                 'https://maven.fabricmc.net/net/fabricmc/yarn/maven-metadata.xml',
                 { it.startsWith("${requestedMcVersion}+build.") },
-                'Yarn mappings')
+                'Yarn mappings',
+                requestedMcVersion)
         : (project.findProperty('yarn_mappings') ?: project.yarn_mappings)
 def resolvedFabricApi = (useDynamicResolution && !hasExplicitFabricVersion)
         ? resolveFromMavenMetadata(
                 'https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/maven-metadata.xml',
                 { it.endsWith("+${requestedMcVersion}") },
-                'Fabric API')
+                'Fabric API',
+                requestedMcVersion)
         : (project.findProperty('fabric_version') ?: project.fabric_version)
+
+def resolveNeoForgeVersion(String mcVersion) {
+    def mcParts = mcVersion.tokenize('.')
+    def prefix = "21.${mcParts.size() > 2 ? mcParts[2] : '0'}."
+    def metadataUrl = 'https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml'
+    def versions = fetchMavenVersions(metadataUrl).findAll { it.startsWith(prefix) }
+    def candidates = versions.findAll { !it.contains('-beta') } ?: versions
+    if (candidates.isEmpty()) {
+        throw new GradleException("No NeoForge version found for Minecraft ${mcVersion} at ${metadataUrl}")
+    }
+    return candidates.last()
+}
+def resolvedNeoForge = (useDynamicResolution && !hasExplicitNeoForgeVersion)
+        ? resolveNeoForgeVersion(requestedMcVersion)
+        : (project.findProperty('neoforge_version') ?: project.neoforge_version)
 
 project.ext.minecraft_version = requestedMcVersion
 project.ext.yarn_mappings = resolvedYarnMappings
 project.ext.fabric_version = resolvedFabricApi
-
-def minecraftDependency = project.minecraft_version.toString()
+project.ext.neoforge_version = resolvedNeoForge
 
 def resolvedModVersion = project.mod_version.toString()
 def includeMcSuffix = true
-project.version = includeMcSuffix
+def fullModVersion = includeMcSuffix
         ? "${resolvedModVersion}+mc${requestedMcVersion}"
         : resolvedModVersion
 
@@ -73,72 +112,72 @@ def isAtLeast(String version, String minimum) {
     return true
 }
 
-def useModernInput = isAtLeast(requestedMcVersion, '1.21.10')
-def useJomlMatrices = isAtLeast(requestedMcVersion, '1.21.6')
+project.ext.useModernInput = isAtLeast(requestedMcVersion, '1.21.10')
+project.ext.useJomlMatrices = isAtLeast(requestedMcVersion, '1.21.6')
 
-sourceSets {
-    main {
-        java {
-            setSrcDirs([
-                    'src/main/java',
-                    useModernInput ? 'src/modern/java' : 'src/legacy/java',
-                    useJomlMatrices ? 'src/matrix-joml/java' : 'src/matrix-stack/java'
-            ])
-            exclude 'com/ryduzz/**'
+architectury {
+    minecraft = requestedMcVersion
+}
+
+allprojects {
+    group = rootProject.maven_group
+    version = fullModVersion
+}
+
+subprojects {
+    apply plugin: 'dev.architectury.loom'
+    apply plugin: 'architectury-plugin'
+    apply plugin: 'maven-publish'
+
+    base {
+        archivesName = "${rootProject.archives_base_name}-${project.name}"
+    }
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        minecraft "com.mojang:minecraft:${rootProject.minecraft_version}"
+        mappings loom.layered {
+            mappings "net.fabricmc:yarn:${rootProject.yarn_mappings}:v2"
+            mappings rootProject.file('gradle/yarn-neoforge-patch.tiny')
+        }
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(21)
+        }
+        withSourcesJar()
+    }
+
+    if (project.name != 'common') {
+        evaluationDependsOn(':common')
+        sourcesJar {
+            def commonSources = project(':common').tasks.named('sourcesJar')
+            dependsOn commonSources
+            from(commonSources.flatMap { it.archiveFile }.map { zipTree(it) })
+            duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+        }
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                artifactId = base.archivesName.get()
+                from components.java
+            }
         }
     }
 }
 
-repositories {
-    mavenCentral()
-    maven { url 'https://maven.fabricmc.net/' }
-    maven { url 'https://api.modrinth.com/maven' }
-}
-
-dependencies {
-    minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-    withSourcesJar()
-}
-
-processResources {
-    inputs.property 'version', project.version
-    inputs.property 'minecraft_dependency', project.minecraft_version
-
-    filesMatching('fabric.mod.json') {
-        expand 'version': project.version,
-                'minecraft_dependency': project.minecraft_version
-    }
-}
-
-jar {
-    from('LICENSE.txt') {
-        rename { "${it}_${project.archives_base_name}" }
-    }
-}
-
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            from components.java
-        }
-    }
-}
-
-def gradleWrapper = System.getProperty('os.name').toLowerCase().contains('windows') ? 'gradlew.bat' : './gradlew'
+def gradleWrapper = new File(rootDir, System.getProperty('os.name').toLowerCase().contains('windows') ? 'gradlew.bat' : 'gradlew').absolutePath
 def buildTargetTasks = supportedMcVersions.collect { version ->
     def taskName = "buildTarget${version.replace('.', '_')}"
     tasks.register(taskName, Exec) {
         group = 'build'
-        description = "Builds the mod for Minecraft ${version}"
+        description = "Builds the Fabric and NeoForge jars for Minecraft ${version}"
         workingDir = rootDir
         commandLine gradleWrapper, 'build', "-Pmc_version=${version}"
     }
@@ -146,12 +185,6 @@ def buildTargetTasks = supportedMcVersions.collect { version ->
 
 tasks.register('buildAllTargets') {
     group = 'build'
-    description = 'Builds the mod for all supported Minecraft versions.'
+    description = 'Builds the Fabric and NeoForge jars for all supported Minecraft versions.'
     dependsOn(buildTargetTasks)
-    doLast {
-        delete(fileTree("${buildDir}/libs") {
-            include "${project.archives_base_name}-${resolvedModVersion}.jar"
-            include "${project.archives_base_name}-${resolvedModVersion}-sources.jar"
-        })
-    }
 }

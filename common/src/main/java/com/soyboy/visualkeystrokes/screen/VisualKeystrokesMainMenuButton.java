@@ -2,6 +2,7 @@ package com.soyboy.visualkeystrokes.screen;
 
 import com.soyboy.visualkeystrokes.ui.UiStyle;
 import com.soyboy.visualkeystrokes.util.TextCompatibilityBridge;
+
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.tooltip.Tooltip;

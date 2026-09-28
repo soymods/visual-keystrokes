@@ -83,7 +83,8 @@ final class GuiTextureRenderer {
             }
             Class<?> pipelinesClass = tryLoadClass(
                 "net.minecraft.client.gl.RenderPipelines",
-                "net.minecraft.class_10799"
+                "net.minecraft.class_10799",
+                "net.minecraft.client.renderer.RenderPipelines"
             );
             if (pipelinesClass == null) {
                 return null;
@@ -198,7 +199,8 @@ final class GuiTextureRenderer {
         private static Function<Identifier, Object> locateRenderLayerFactory() {
             Class<?> renderLayerClass = tryLoadClass(
                 "net.minecraft.client.render.RenderLayer",
-                "net.minecraft.class_1921"
+                "net.minecraft.class_1921",
+                "net.minecraft.client.renderer.RenderType"
             );
             if (renderLayerClass == null) {
                 return null;
@@ -219,7 +221,8 @@ final class GuiTextureRenderer {
         private static Method findGuiTexturedMethod(Class<?> renderLayerClass) {
             String[] candidateNames = {
                 "getGuiTextured",
-                "method_62277"
+                "method_62277",
+                "guiTextured"
             };
             for (String name : candidateNames) {
                 try {
